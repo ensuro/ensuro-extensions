@@ -5,6 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
@@ -18,7 +19,7 @@ import {Policy} from "@ensuro/core/contracts/Policy.sol";
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
+contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Receiver {
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
@@ -26,9 +27,14 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
   bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
 
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   SignedQuoteRiskModule internal immutable _riskModule;
   address internal _customer;
   uint256 internal _debt;
+
+  event DebtChanged(uint256 currentDebt);
+  event CustomerChanged(address customer);
+  event Withdrawal(address destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(SignedQuoteRiskModule riskModule_) {
@@ -54,6 +60,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
     __AccessControl_init();
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     _customer = customer_;
+    emit CustomerChanged(customer_);
     // Infinite approval to the PolicyPool to pay the premiums
     _riskModule.currency().approve(address(_riskModule.policyPool()), type(uint256).max);
   }
@@ -63,6 +70,16 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
 
   function _balance() internal view returns (uint256) {
     return _riskModule.currency().balanceOf(address(this));
+  }
+
+  function _increaseDebt(uint256 amount) internal {
+    _debt += amount;
+    emit DebtChanged(_debt);
+  }
+
+  function _decreaseDebt(uint256 amount) internal {
+    _debt -= amount;
+    emit DebtChanged(_debt);
   }
 
   /**
@@ -97,7 +114,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
       quoteValidUntil
     );
     // Increases the debt
-    _debt += balanceBefore - _balance();
+    _increaseDebt(balanceBefore - _balance());
     return createdPolicy;
   }
 
@@ -133,7 +150,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
       quoteValidUntil
     );
     // Increases the debt
-    _debt += balanceBefore - _balance();
+    _increaseDebt(balanceBefore - _balance());
     return policyId;
   }
 
@@ -174,18 +191,18 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
       quoteValidUntil
     );
     // Increases the debt
-    _debt += balanceBefore - _balance();
+    _increaseDebt(balanceBefore - _balance());
     return policyId;
   }
 
   function _repayDebtTransferRest(uint256 balanceBefore) internal {
     uint256 payout = _balance() - balanceBefore;
     if (payout <= _debt) {
-      _debt -= payout;
+      _decreaseDebt(payout);
     } else {
       if (_debt != 0) {
         payout -= _debt;
-        _debt = 0;
+        _decreaseDebt(_debt);
       }
       _riskModule.currency().safeTransfer(_customer, payout);
     }
@@ -209,9 +226,17 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
     _repayDebtTransferRest(balanceBefore);
   }
 
+  function onERC721Received(
+    address,
+    address,
+    uint256,
+    bytes calldata
+  ) external pure override returns (bytes4) {
+    return IERC721Receiver.onERC721Received.selector;
+  }
+
   /**
-   *
-   * Withdraws funds from the contract
+   * @dev Withdraws funds from the contract
    *
    * Can be executed by the owner to recover the funds.
    *
@@ -235,12 +260,36 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
     }
     if (amount > 0) {
       _riskModule.currency().safeTransfer(destination, amount);
+      emit Withdrawal(destination, amount);
     }
     return amount;
   }
 
+  /**
+   * @dev Returns the current amount the customer owes.
+   */
   function currentDebt() external view returns (uint256) {
     return _debt;
+  }
+
+  /**
+   * @dev Returns the address of the `customer`, the one that will receive the payouts when debt was repaid
+   */
+  function customer() external view returns (address) {
+    return _customer;
+  }
+
+  /**
+   * @dev Sets the address of the `customer`, the one that will receive the payouts when debt was repaid
+   *
+   * Requirements:
+   * - Caller has OWNER_ROLE
+   *
+   * @param customer_ The new address of the customer
+   */
+  function setCustomer(address customer_) external onlyRole(OWNER_ROLE) {
+    _customer = customer_;
+    emit CustomerChanged(customer_);
   }
 
   /**
@@ -251,7 +300,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable {
    */
   function repayDebt(uint256 amount) external {
     amount = Math.min(_debt, amount);
-    _debt -= amount;
+    _decreaseDebt(amount);
     _riskModule.currency().safeTransferFrom(_msgSender(), address(this), amount);
   }
 
