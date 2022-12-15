@@ -62,15 +62,11 @@ describe("CashFlowLender contract tests", function () {
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
 
     const CashFlowLender = await hre.ethers.getContractFactory("CashFlowLender");
-    const cfLender = await hre.upgrades.deployProxy(
-      CashFlowLender,
-      [cust.address],
-      {
-        kind: "uups",
-        unsafeAllow: ["delegatecall"],
-        constructorArgs: [rm.address],
-      }
-    );
+    const cfLender = await hre.upgrades.deployProxy(CashFlowLender, [cust.address], {
+      kind: "uups",
+      unsafeAllow: ["delegatecall"],
+      constructorArgs: [rm.address],
+    });
 
     await accessManager.grantComponentRole(rm.address, await rm.POLICY_CREATOR_ROLE(), cfLender.address);
     await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), cfLender.address);
@@ -122,7 +118,7 @@ describe("CashFlowLender contract tests", function () {
     const quoteMessage = makeQuoteMessage(policyParams);
     const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
     await expect(newPolicy(cfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
-      "ERC20: transfer amount exceeds balance"  // No funds in cfLender
+      "ERC20: transfer amount exceeds balance" // No funds in cfLender
     );
     expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(0));
     await currency.connect(owner).transfer(cfLender.address, _A(1000));
@@ -176,9 +172,9 @@ describe("CashFlowLender contract tests", function () {
     let receipt = await tx.wait();
     expect(await cfLender.currentDebt()).to.be.equal(_A(200));
     let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
-    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(150))).to.emit(
-      cfLender, "DebtChanged"
-    ).withArgs(_A(50));
+    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(150)))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_A(50));
     expect(await cfLender.currentDebt()).to.be.equal(_A(50));
     expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500)); // 500 initial
 
@@ -187,7 +183,7 @@ describe("CashFlowLender contract tests", function () {
       rmAddress: rm.address,
       premium: _A(100),
       payout: _A(500),
-      policyData: "0x2cbef6744ebcff4969e06c41631a1d0aa71366c4fd997e9ff5a59b8efa9b9032"
+      policyData: "0x2cbef6744ebcff4969e06c41631a1d0aa71366c4fd997e9ff5a59b8efa9b9032",
     });
     quoteMessage = makeQuoteMessage(policyParams);
     signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
@@ -196,9 +192,9 @@ describe("CashFlowLender contract tests", function () {
     expect(await cfLender.currentDebt()).to.be.equal(_A(150));
     newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
-    await expect(cfLender.connect(resolver).resolvePolicyFullPayout(newPolicyEvt.args[1], true)).to.emit(
-      cfLender, "DebtChanged"
-    ).withArgs(_A(0));
+    await expect(cfLender.connect(resolver).resolvePolicyFullPayout(newPolicyEvt.args[1], true))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_A(0));
     expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500 + 500 - 150));
   });
 
@@ -214,15 +210,52 @@ describe("CashFlowLender contract tests", function () {
     let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     // Repay debt
     await currency.connect(cust).approve(cfLender.address, _A(500));
-    await expect(cfLender.connect(cust).repayDebt(_A(500))).to.emit(
-      cfLender, "DebtChanged"
-    ).withArgs(_A(0));
+    await expect(cfLender.connect(cust).repayDebt(_A(500)))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_A(0));
     expect(await cfLender.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(cust.address)).to.be.equal(_A(300)); // 500 initial - 200 repaid
     await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(150))).not.to.emit(
-      cfLender, "DebtChanged"
+      cfLender,
+      "DebtChanged"
     );
     expect(await currency.balanceOf(cust.address)).to.be.equal(_A(450));
+  });
+
+  it("Repay debt works even if resolved through RM directly", async () => {
+    const { rm, pool, currency, cfLender, accessManager } = await helpers.loadFixture(deployPoolFixture);
+    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
+    let quoteMessage = makeQuoteMessage(policyParams);
+    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    await currency.connect(owner).transfer(cfLender.address, _A(1000));
+    let tx = await newPolicy(cfLender, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    expect(await cfLender.currentDebt()).to.be.equal(_A(200));
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    // Resolve with cust address
+    await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), resolver.address);
+    await expect(rm.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(250)))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_A(0));
+    expect(await currency.balanceOf(cust.address)).to.be.equal(_A(550));
+    expect(await cfLender.riskModule()).to.be.equal(rm.address);
+  });
+
+  it("Checks policy expires OK", async () => {
+    const { rm, pool, currency, cfLender } = await helpers.loadFixture(deployPoolFixture);
+    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
+    let quoteMessage = makeQuoteMessage(policyParams);
+    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    await currency.connect(owner).transfer(cfLender.address, _A(1000));
+    let tx = await newPolicy(cfLender, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    expect(await cfLender.currentDebt()).to.be.equal(_A(200));
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    //
+    await helpers.time.increaseTo(newPolicyEvt.args[1].expiration + 500);
+    // Expire the policy
+    await expect(pool.expirePolicy(newPolicyEvt.args[1])).not.to.emit(cfLender, "DebtChanged");
+    expect(await cfLender.currentDebt()).to.be.equal(_A(200));
   });
 
   it("It's possible to change the customer address and other receives the payout", async () => {
@@ -240,13 +273,13 @@ describe("CashFlowLender contract tests", function () {
     await expect(cfLender.connect(anon).setCustomer(anon.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "OWNER_ROLE")
     );
-    await expect(cfLender.connect(owner).setCustomer(anon.address)).to.emit(
-      cfLender, "CustomerChanged"
-    ).withArgs(anon.address);
+    await expect(cfLender.connect(owner).setCustomer(anon.address))
+      .to.emit(cfLender, "CustomerChanged")
+      .withArgs(anon.address);
     expect(await cfLender.customer()).to.be.equal(anon.address);
-    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(500))).to.emit(
-      cfLender, "DebtChanged"
-    ).withArgs(_W(0));
+    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(500)))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_W(0));
     expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500)); // unchanged
     expect(await currency.balanceOf(anon.address)).to.be.equal(_A(300)); // 500 payout - 200 debt
   });
@@ -266,22 +299,23 @@ describe("CashFlowLender contract tests", function () {
     await expect(cfLender.connect(anon).withdraw(_A(200), anon.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "OWNER_ROLE")
     );
-    await expect(cfLender.connect(owner).withdraw(_A(300), anon.address)).to.emit(
-      cfLender, "Withdrawal"
-    ).withArgs(anon.address, _A(300));
+    await expect(cfLender.connect(owner).withdraw(_A(300), anon.address))
+      .to.emit(cfLender, "Withdrawal")
+      .withArgs(anon.address, _A(300));
     expect(await currency.balanceOf(anon.address)).to.be.equal(_A(300));
     expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(1000 - 300 - 200));
-    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(200))).to.emit(
-      cfLender, "DebtChanged"
-    ).withArgs(_A(0));
-    await expect(cfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).to.emit(
-      cfLender, "Withdrawal"
-    ).withArgs(anon.address, _A(700));
+    await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(200)))
+      .to.emit(cfLender, "DebtChanged")
+      .withArgs(_A(0));
+    await expect(cfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address))
+      .to.emit(cfLender, "Withdrawal")
+      .withArgs(anon.address, _A(700));
     expect(await currency.balanceOf(anon.address)).to.be.equal(_A(1000));
     expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(0));
     // When no more funds, withdraw doesn't fails, just doesn't do anything
     await expect(cfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).not.to.emit(
-      cfLender, "Withdrawal"
+      cfLender,
+      "Withdrawal"
     );
   });
 });

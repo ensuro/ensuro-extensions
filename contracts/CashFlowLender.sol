@@ -10,6 +10,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
+import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
 
 /**
  * @title CashFlow Lender Module
@@ -19,7 +20,7 @@ import {Policy} from "@ensuro/core/contracts/Policy.sol";
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Receiver {
+contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHolder {
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
@@ -195,8 +196,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Rec
     return policyId;
   }
 
-  function _repayDebtTransferRest(uint256 balanceBefore) internal {
-    uint256 payout = _balance() - balanceBefore;
+  function _repayDebtTransferRest(uint256 payout) internal {
     if (payout <= _debt) {
       _decreaseDebt(payout);
     } else {
@@ -212,18 +212,14 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Rec
     Policy.PolicyData calldata policy,
     uint256 payout
   ) external onlyRole(RESOLVER_ROLE) {
-    uint256 balanceBefore = _balance();
     _riskModule.resolvePolicy(policy, payout);
-    _repayDebtTransferRest(balanceBefore);
   }
 
   function resolvePolicyFullPayout(
     Policy.PolicyData calldata policy,
     bool customerWon
   ) external onlyRole(RESOLVER_ROLE) {
-    uint256 balanceBefore = _balance();
     _riskModule.resolvePolicyFullPayout(policy, customerWon);
-    _repayDebtTransferRest(balanceBefore);
   }
 
   function onERC721Received(
@@ -233,6 +229,33 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Rec
     bytes calldata
   ) external pure override returns (bytes4) {
     return IERC721Receiver.onERC721Received.selector;
+  }
+
+  function onPolicyExpired(address, address, uint256) external pure override returns (bytes4) {
+    return IPolicyHolder.onPolicyExpired.selector;
+  }
+
+  /**
+   * @dev Whenever an Policy is resolved with payout > 0, this function is called
+   *
+   * It must return its Solidity selector to confirm the payout.
+   * If interface is not implemented by the recipient, it will be ignored and the payout will be successful.
+   * If any other value is returned or it reverts, the policy resolution / payout will be reverted.
+   *
+   * The selector can be obtained in Solidity with `IPolicyPool.onPayoutReceived.selector`.
+   */
+  function onPayoutReceived(
+    address,
+    address,
+    uint256,
+    uint256 amount
+  ) external override returns (bytes4) {
+    require(
+      msg.sender == address(_riskModule.policyPool()),
+      "Only the PolicyPool should call this method"
+    );
+    _repayDebtTransferRest(amount);
+    return IPolicyHolder.onPayoutReceived.selector;
   }
 
   /**
@@ -277,6 +300,13 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IERC721Rec
    */
   function customer() external view returns (address) {
     return _customer;
+  }
+
+  /**
+   * @dev Returns the address of the wrapped riskModule
+   */
+  function riskModule() external view returns (SignedQuoteRiskModule) {
+    return _riskModule;
   }
 
   /**
