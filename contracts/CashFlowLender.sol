@@ -174,7 +174,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
     uint40 quoteValidUntil
-  ) external returns (uint256 policyId) {
+  ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
     /**
      * Calls newPolicy instead of newPolicyPaidByHolder because customer == msg.sender. We just keep this method
