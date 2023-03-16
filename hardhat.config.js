@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
 require("hardhat-dependency-compiler");
@@ -23,6 +25,7 @@ module.exports = {
   dependencyCompiler: {
     paths: [
       "@ensuro/core/contracts/PolicyPool.sol",
+      "@ensuro/core/contracts/LPManualWhitelist.sol",
       "@ensuro/core/contracts/AccessManager.sol",
       "@ensuro/core/contracts/PremiumsAccount.sol",
       "@ensuro/core/contracts/SignedQuoteRiskModule.sol",
