@@ -96,9 +96,7 @@ describe("Quadrata whitelist", () => {
   });
 
   fork.it("Does not allow overriding whitelist defaults through quadrataWhitelist", 33179753, async () => {
-    const adminEOA = await hre.ethers.getImpersonatedSigner(ADMIN_EOA);
-
-    const { whitelist, accessManager } = await deployWhitelist({ whitelisters: [operative] });
+    const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
 
     await expect(whitelist.connect(operative).quadrataWhitelist(hre.ethers.constants.AddressZero)).to.be.revertedWith(
       "Provider cannot be the zero address"
@@ -110,7 +108,6 @@ describe("Quadrata whitelist", () => {
 
     const userWithoutPassport = "0x4c56A8EFdd7aFd6A708641e3754801fE0538eb80";
     const reader = await hre.ethers.getContractAt("IQuadReader", QUADRATA_READER);
-    const { assertAttributeValue } = await deployPassportInspector(reader.address);
 
     // User has no passport
     expect(await reader.balanceOf(userWithoutPassport, attributes.DID)).to.equal(0);
@@ -149,7 +146,7 @@ describe("Quadrata whitelist", () => {
   });
 
   fork.it("Validates that user aml score is above threshold", 33235866, async () => {
-    const { whitelist, whitelistMode, requiredAMLScore } = await deployWhitelist({ whitelisters: [operative] });
+    const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
     const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
 
     const userWithPassport = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199";
@@ -170,7 +167,7 @@ describe("Quadrata whitelist", () => {
   });
 
   fork.it("Only allows admin to change required AML score", 33235866, async () => {
-    const { whitelist, whitelistMode, requiredAMLScore } = await deployWhitelist({ admins: [admin] });
+    const { whitelist, requiredAMLScore } = await deployWhitelist({ admins: [admin] });
 
     expect(await whitelist.requiredAMLScore()).to.equal(requiredAMLScore);
 
@@ -181,6 +178,43 @@ describe("Quadrata whitelist", () => {
     await expect(whitelist.connect(admin).setRequiredAMLScore(2))
       .to.emit(whitelist, "RequiredAMLScoreChanged")
       .withArgs(2);
+  });
+
+  fork.it("Only allows admin to add/remove country from blacklist", 33235866, async () => {
+    const { whitelist } = await deployWhitelist({ admins: [admin] });
+
+    expect(await whitelist.countryBlacklisted(keccak256("CL"))).to.be.false;
+
+    await expect(whitelist.connect(nobody).setCountryBlacklisted(keccak256("CL"), true)).to.be.revertedWith(
+      accessControlMessage(nobody.address, whitelist.address, "LP_WHITELIST_ADMIN_ROLE")
+    );
+
+    await expect(whitelist.connect(admin).setCountryBlacklisted(keccak256("CL"), true))
+      .to.emit(whitelist, "CountryBlacklistChanged")
+      .withArgs(keccak256("CL"), true);
+  });
+
+  fork.it("Does not whitelist user from blacklisted country", 33235866, async () => {
+    const { whitelist } = await deployWhitelist({ admins: [admin], whitelisters: [operative] });
+    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+    const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
+
+    // Baseline check: passport with DID, non-blacklisted country and highest AML score
+    await assertAttributeValue(
+      userWithPassport,
+      attributes.DID,
+      "0xd08185fb6845211640cf7c3f4355f8f886d7bcc7a3bd484b029b5a7539cdb55d"
+    );
+    await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("AR"));
+    await assertAttributeValue(userWithPassport, attributes.AML, hre.ethers.utils.hexZeroPad("0x9", 32));
+
+    // Blacklist user's country
+    await whitelist.connect(admin).setCountryBlacklisted(keccak256("AR"), true);
+
+    // User cannot be whitelisted
+    await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport)).to.be.revertedWith(
+      "Country not allowed"
+    );
   });
 });
 

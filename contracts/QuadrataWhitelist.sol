@@ -22,8 +22,11 @@ contract QuadrataWhitelist is LPManualWhitelist {
 
   uint256 internal _requiredAMLScore;
 
+  mapping(bytes32 => bool) _countryBlacklisted;
+
   event QuadrataWhitelistModeChanged(WhitelistStatus newMode);
   event RequiredAMLScoreChanged(uint256 requiredAMLScore);
+  event CountryBlacklistChanged(bytes32 country, bool blacklisted);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   // solhint-disable-next-line no-empty-blocks
@@ -86,6 +89,8 @@ contract QuadrataWhitelist is LPManualWhitelist {
 
     if (attributeKey == keccak256("AML")) {
       require(uint256(attribute.value) >= _requiredAMLScore, "AML score < required AML score");
+    } else if (attributeKey == keccak256("COUNTRY")) {
+      require(!_countryBlacklisted[attribute.value], "Country not allowed");
     }
   }
 
@@ -126,5 +131,17 @@ contract QuadrataWhitelist is LPManualWhitelist {
   ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
     _requiredAMLScore = requiredAMLScore_;
     emit RequiredAMLScoreChanged(_requiredAMLScore);
+  }
+
+  function countryBlacklisted(bytes32 country) external view virtual returns (bool) {
+    return _countryBlacklisted[country];
+  }
+
+  function setCountryBlacklisted(
+    bytes32 country,
+    bool blacklisted
+  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+    _countryBlacklisted[country] = blacklisted;
+    emit CountryBlacklistChanged(country, blacklisted);
   }
 }
