@@ -18,6 +18,8 @@ contract QuadrataWhitelist is LPManualWhitelist {
 
   WhitelistStatus internal _whitelistMode;
 
+  bytes32[] internal _requiredAttributes;
+
   event QuadrataWhitelistModeChanged(WhitelistStatus newMode);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
@@ -55,19 +57,29 @@ contract QuadrataWhitelist is LPManualWhitelist {
   ) internal onlyInitializing {
     _reader = reader;
     _whitelistMode = quadrataWhitelistMode;
+
+    // TODO: this should be configurable
+    _requiredAttributes.push(keccak256("DID"));
+    _requiredAttributes.push(keccak256("COUNTRY"));
+    _requiredAttributes.push(keccak256("AML"));
+
     emit QuadrataWhitelistModeChanged(_whitelistMode);
   }
 
   function quadrataWhitelist(address provider) public onlyComponentRole(QUADRATA_WHITELIST_ROLE) {
     require(provider != address(0), "Provider cannot be the zero address");
-    // TODO: query quadrata
-    bool isEligibleCountry = true;
-    bool isEligibleAML = true;
 
-    require(
-      isEligibleCountry && isEligibleAML,
-      "Provider's passport not eligible for whitelisting"
+    IQuadPassportStore.Attribute[] memory attributes = _reader.getAttributesBulk(
+      provider,
+      _requiredAttributes
     );
+
+    for (uint256 i = 0; i < attributes.length; i++) {
+      require(
+        attributes[i].value != bytes32(0),
+        "User has no passport or is missing required attributes"
+      );
+    }
 
     _whitelistAddress(provider, _whitelistMode);
   }
