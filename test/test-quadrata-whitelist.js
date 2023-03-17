@@ -109,7 +109,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Does not whitelist user with no passport or missing attributes", 33222066, async () => {
+  fork.it("Does not whitelist user with no passport or missing attributes", 33242153, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
     const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
 
@@ -127,9 +127,13 @@ describe("Quadrata whitelist", () => {
     );
 
     const userWithPassportMissingAML = "0x9CA0105B43Df30fa9f0BFbFD2611073A20519020";
-    // Baseline check: user has no AML and therefore no country or DID either
-    await assertAttributeValue(userWithPassportMissingAML, attributes.DID, hre.ethers.constants.HashZero);
-    await assertAttributeValue(userWithPassportMissingAML, attributes.COUNTRY, hre.ethers.constants.HashZero);
+    // Baseline check: user is missing AML
+    await assertAttributeValue(
+      userWithPassportMissingAML,
+      attributes.DID,
+      "0x0f8de4510f054c48d6eb2e720bd3e78dc3e119d4ea7023ecc9e7363562d9cbcd"
+    );
+    await assertAttributeValue(userWithPassportMissingAML, attributes.COUNTRY, keccak256("US"));
     await assertAttributeValue(userWithPassportMissingAML, attributes.AML, hre.ethers.constants.HashZero);
 
     // Can't be whitelisted
