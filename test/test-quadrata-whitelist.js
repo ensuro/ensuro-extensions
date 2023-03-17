@@ -300,7 +300,7 @@ async function deployWhitelist(options) {
       kind: "uups",
       unsafeAllow: [],
       constructorArgs: [POLICYPOOL_ADDRESS],
-      initializer: "initializeQ", // TODO: this is ugly, find out how to properly handle the override
+      initializer: "initializeQuadrata",
     }
   );
 

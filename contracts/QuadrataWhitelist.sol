@@ -41,7 +41,7 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
    * @param quadrataWhitelistMode The whitelist status to be used when whitelisting with quadrata
    * @param reader_ The QuadReader to be used
    */
-  function initializeQ(
+  function initializeQuadrata(
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
     IQuadReader reader_,
