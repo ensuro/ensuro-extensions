@@ -15,7 +15,8 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
 
   bytes32 public constant QUADRATA_WHITELIST_ROLE = keccak256("QUADRATA_WHITELIST_ROLE");
 
-  IQuadReader internal _reader;
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+  IQuadReader internal immutable _reader;
 
   WhitelistStatus internal _whitelistMode;
 
@@ -31,27 +32,30 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
   event RequiredAttributeAdded(bytes32 attribute);
   event RequiredAttributeRemoved(bytes32 attribute);
 
+  /**
+   *
+   * @param policyPool_ The policypool this whitelist belongs to
+   * @param reader_ The QuadReader to be used
+   */
   /// @custom:oz-upgrades-unsafe-allow constructor
-  // solhint-disable-next-line no-empty-blocks
-  constructor(IPolicyPool policyPool_) LPManualWhitelist(policyPool_) {}
+  constructor(IPolicyPool policyPool_, IQuadReader reader_) LPManualWhitelist(policyPool_) {
+    _reader = reader_;
+  }
 
   /**
    *
    * @param defaultStatus The default status to use for undefined whitelist status
    * @param quadrataWhitelistMode The whitelist status to be used when whitelisting with quadrata
-   * @param reader_ The QuadReader to be used
    */
   function initializeQuadrata(
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader_,
     uint256 requiredAMLScore_,
     bytes32[] calldata requiredAttributes_
   ) public initializer {
     __QuadrataWhitelist_init(
       defaultStatus,
       quadrataWhitelistMode,
-      reader_,
       requiredAMLScore_,
       requiredAttributes_
     );
@@ -61,14 +65,12 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
   function __QuadrataWhitelist_init(
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader_,
     uint256 requiredAMLScore_,
     bytes32[] calldata requiredAttributes_
   ) internal onlyInitializing {
     __LPManualWhitelist_init(defaultStatus);
     __QuadrataWhitelist_init_unchained(
       quadrataWhitelistMode,
-      reader_,
       requiredAMLScore_,
       requiredAttributes_
     );
@@ -77,12 +79,9 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
   // solhint-disable-next-line func-name-mixedcase
   function __QuadrataWhitelist_init_unchained(
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader_,
     uint256 requiredAMLScore_,
     bytes32[] calldata requiredAttributes_
   ) internal onlyInitializing {
-    _reader = reader_;
-
     for (uint256 i = 0; i < requiredAttributes_.length; i++) {
       _requiredAttributes.push(requiredAttributes_[i]);
       emit RequiredAttributeAdded(requiredAttributes_[i]);

@@ -295,11 +295,11 @@ async function deployWhitelist(options) {
 
   const whitelist = await hre.upgrades.deployProxy(
     QuadrataWhitelist,
-    [defaultStatus, whitelistMode, reader || QUADRATA_READER, requiredAMLScore, requiredAttributes],
+    [defaultStatus, whitelistMode, requiredAMLScore, requiredAttributes],
     {
       kind: "uups",
       unsafeAllow: [],
-      constructorArgs: [POLICYPOOL_ADDRESS],
+      constructorArgs: [POLICYPOOL_ADDRESS, reader || QUADRATA_READER],
       initializer: "initializeQuadrata",
     }
   );
