@@ -31,6 +31,7 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
   event CountryBlacklistChanged(bytes32 country, bool blacklisted);
   event RequiredAttributeAdded(bytes32 attribute);
   event RequiredAttributeRemoved(bytes32 attribute);
+  event PassportAttribute(address indexed provider, bytes32 indexed attribute, bytes32 value);
 
   /**
    *
@@ -122,6 +123,7 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
 
     for (uint256 i = 0; i < attributes.length; i++) {
       _validateRequiredAttribute(_requiredAttributes[i], attributes[i]);
+      emit PassportAttribute(provider, _requiredAttributes[i], attributes[i].value);
     }
 
     _whitelistAddress(provider, _whitelistMode);

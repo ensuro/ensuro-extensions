@@ -151,6 +151,24 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, whitelistMode);
   });
 
+  fork.it("Emits events with passport attributes on whitelist", 33222066, async () => {
+    const { whitelist, whitelistMode } = await deployWhitelist({ whitelisters: [operative] });
+    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+
+    const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
+
+    const tx = whitelist.connect(operative).quadrataWhitelist(userWithPassport);
+    await expect(tx)
+      .to.emit(whitelist, "PassportAttribute")
+      .withArgs(userWithPassport, attributes.DID, "0xd08185fb6845211640cf7c3f4355f8f886d7bcc7a3bd484b029b5a7539cdb55d");
+    await expect(tx)
+      .to.emit(whitelist, "PassportAttribute")
+      .withArgs(userWithPassport, attributes.COUNTRY, keccak256("AR"));
+    await expect(tx)
+      .to.emit(whitelist, "PassportAttribute")
+      .withArgs(userWithPassport, attributes.AML, hre.ethers.utils.hexZeroPad("0x9", 32));
+  });
+
   fork.it("Validates that user aml score is above threshold", 33235866, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
     const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
