@@ -23,7 +23,7 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
 
   uint256 internal _requiredAMLScore;
 
-  mapping(bytes32 => bool) _countryBlacklisted;
+  mapping(bytes32 => bool) internal _countryBlacklisted;
 
   event QuadrataWhitelistModeChanged(WhitelistStatus newMode);
   event RequiredAMLScoreChanged(uint256 requiredAMLScore);
