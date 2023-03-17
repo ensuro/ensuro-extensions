@@ -8,8 +8,9 @@ import {PolicyPoolComponent} from "@ensuro/core/contracts/PolicyPoolComponent.so
 import {IQuadReader} from "@quadrata/contracts/interfaces/IQuadReader.sol";
 import {IQuadPassportStore} from "@quadrata/contracts/interfaces/IQuadPassportStore.sol";
 import {QuadReaderUtils} from "@quadrata/contracts/utility/QuadReaderUtils.sol";
+import {QuadConstant} from "@quadrata/contracts/storage/QuadConstant.sol";
 
-contract QuadrataWhitelist is LPManualWhitelist {
+contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
   using QuadReaderUtils for bytes32;
 
   bytes32 public constant QUADRATA_WHITELIST_ROLE = keccak256("QUADRATA_WHITELIST_ROLE");
@@ -27,6 +28,8 @@ contract QuadrataWhitelist is LPManualWhitelist {
   event QuadrataWhitelistModeChanged(WhitelistStatus newMode);
   event RequiredAMLScoreChanged(uint256 requiredAMLScore);
   event CountryBlacklistChanged(bytes32 country, bool blacklisted);
+  event RequiredAttributeAdded(bytes32 attribute);
+  event RequiredAttributeRemoved(bytes32 attribute);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   // solhint-disable-next-line no-empty-blocks
@@ -42,9 +45,16 @@ contract QuadrataWhitelist is LPManualWhitelist {
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
     IQuadReader reader_,
-    uint256 requiredAMLScore_
+    uint256 requiredAMLScore_,
+    bytes32[] calldata requiredAttributes_
   ) public initializer {
-    __QuadrataWhitelist_init(defaultStatus, quadrataWhitelistMode, reader_, requiredAMLScore_);
+    __QuadrataWhitelist_init(
+      defaultStatus,
+      quadrataWhitelistMode,
+      reader_,
+      requiredAMLScore_,
+      requiredAttributes_
+    );
   }
 
   // solhint-disable-next-line func-name-mixedcase
@@ -52,24 +62,31 @@ contract QuadrataWhitelist is LPManualWhitelist {
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
     IQuadReader reader_,
-    uint256 requiredAMLScore_
+    uint256 requiredAMLScore_,
+    bytes32[] calldata requiredAttributes_
   ) internal onlyInitializing {
     __LPManualWhitelist_init(defaultStatus);
-    __QuadrataWhitelist_init_unchained(quadrataWhitelistMode, reader_, requiredAMLScore_);
+    __QuadrataWhitelist_init_unchained(
+      quadrataWhitelistMode,
+      reader_,
+      requiredAMLScore_,
+      requiredAttributes_
+    );
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __QuadrataWhitelist_init_unchained(
     WhitelistStatus calldata quadrataWhitelistMode,
     IQuadReader reader_,
-    uint256 requiredAMLScore_
+    uint256 requiredAMLScore_,
+    bytes32[] calldata requiredAttributes_
   ) internal onlyInitializing {
     _reader = reader_;
 
-    // TODO: this should be configurable
-    _requiredAttributes.push(keccak256("DID"));
-    _requiredAttributes.push(keccak256("COUNTRY"));
-    _requiredAttributes.push(keccak256("AML"));
+    for (uint256 i = 0; i < requiredAttributes_.length; i++) {
+      _requiredAttributes.push(requiredAttributes_[i]);
+      emit RequiredAttributeAdded(requiredAttributes_[i]);
+    }
 
     _requiredAMLScore = requiredAMLScore_;
     emit RequiredAMLScoreChanged(_requiredAMLScore);
@@ -87,9 +104,9 @@ contract QuadrataWhitelist is LPManualWhitelist {
       "User has no passport or is missing required attributes"
     );
 
-    if (attributeKey == keccak256("AML")) {
+    if (attributeKey == ATTRIBUTE_AML) {
       require(uint256(attribute.value) >= _requiredAMLScore, "AML score < required AML score");
-    } else if (attributeKey == keccak256("COUNTRY")) {
+    } else if (attributeKey == ATTRIBUTE_COUNTRY) {
       require(!_countryBlacklisted[attribute.value], "Country not allowed");
     }
   }
@@ -143,5 +160,32 @@ contract QuadrataWhitelist is LPManualWhitelist {
   ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
     _countryBlacklisted[country] = blacklisted;
     emit CountryBlacklistChanged(country, blacklisted);
+  }
+
+  function requiredAttributes() external view virtual returns (bytes32[] memory) {
+    return _requiredAttributes;
+  }
+
+  function addRequiredAttribute(
+    bytes32 attribute
+  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+    for (uint256 i = 0; i < _requiredAttributes.length; i++)
+      if (_requiredAttributes[i] == attribute) return;
+
+    // TODO: validate the attribute?
+    _requiredAttributes.push(attribute);
+    emit RequiredAttributeAdded(attribute);
+  }
+
+  function removeRequiredAttribute(
+    bytes32 attribute
+  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+    for (uint256 i = 0; i < _requiredAttributes.length; i++)
+      if (_requiredAttributes[i] == attribute) {
+        _requiredAttributes[i] = _requiredAttributes[_requiredAttributes.length - 1];
+        _requiredAttributes.pop();
+        emit RequiredAttributeRemoved(attribute);
+        return;
+      }
   }
 }

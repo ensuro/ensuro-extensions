@@ -48,6 +48,12 @@ describe("Quadrata whitelist", () => {
     expect(requiredAMLScoreEvent.event).to.equal("RequiredAMLScoreChanged");
     expect(requiredAMLScoreEvent.args.requiredAMLScore).to.equal(requiredAMLScore);
 
+    events = await whitelist.queryFilter(whitelist.filters.RequiredAttributeAdded());
+    const requiredAttributes = events.map((evt) => evt.args.attribute);
+    // by default we require all three attributes
+    expect(requiredAttributes).to.have.members([attributes.DID, attributes.COUNTRY, attributes.AML]);
+    expect(requiredAttributes.length).to.equal(3);
+
     expect(await whitelist.reader()).to.equal(QUADRATA_READER);
   });
 
@@ -216,6 +222,39 @@ describe("Quadrata whitelist", () => {
       "Country not allowed"
     );
   });
+
+  fork.it("Only allows admin to add required attributes", 33235866, async () => {
+    const { whitelist, requiredAttributes } = await deployWhitelist({ admins: [admin] });
+
+    expect(await whitelist.requiredAttributes()).to.eql(requiredAttributes);
+
+    await expect(whitelist.connect(nobody).addRequiredAttribute(attributes.CRED_PROTOCOL_SCORE)).to.be.revertedWith(
+      accessControlMessage(nobody.address, whitelist.address, "LP_WHITELIST_ADMIN_ROLE")
+    );
+
+    await expect(whitelist.connect(admin).addRequiredAttribute(attributes.CRED_PROTOCOL_SCORE))
+      .to.emit(whitelist, "RequiredAttributeAdded")
+      .withArgs(attributes.CRED_PROTOCOL_SCORE);
+    expect(await whitelist.requiredAttributes()).to.eql([...requiredAttributes, attributes.CRED_PROTOCOL_SCORE]);
+  });
+
+  fork.it("Only allows admin to remove required attributes", 33235866, async () => {
+    const { whitelist, requiredAttributes } = await deployWhitelist({
+      admins: [admin],
+      requiredAttributes: [attributes.DID, attributes.AML, attributes.COUNTRY],
+    });
+
+    expect(await whitelist.requiredAttributes()).to.eql(requiredAttributes);
+
+    await expect(whitelist.connect(nobody).removeRequiredAttribute(attributes.AML)).to.be.revertedWith(
+      accessControlMessage(nobody.address, whitelist.address, "LP_WHITELIST_ADMIN_ROLE")
+    );
+
+    await expect(whitelist.connect(admin).removeRequiredAttribute(attributes.AML))
+      .to.emit(whitelist, "RequiredAttributeRemoved")
+      .withArgs(attributes.AML);
+    expect(await whitelist.requiredAttributes()).to.eql([attributes.DID, attributes.COUNTRY]);
+  });
 });
 
 async function deployPassportInspector(readerAddress) {
@@ -231,7 +270,8 @@ async function deployPassportInspector(readerAddress) {
 }
 
 async function deployWhitelist(options) {
-  let { defaultStatus, whitelistMode, reader, requiredAMLScore, whitelisters, admins } = options || {};
+  let { defaultStatus, whitelistMode, reader, requiredAMLScore, requiredAttributes, whitelisters, admins } =
+    options || {};
 
   defaultStatus = defaultStatus || [
     WhitelistStatus.blacklisted, // deposit
@@ -249,11 +289,13 @@ async function deployWhitelist(options) {
 
   requiredAMLScore = requiredAMLScore || 5;
 
+  requiredAttributes = requiredAttributes || [attributes.DID, attributes.COUNTRY, attributes.AML];
+
   const QuadrataWhitelist = await hre.ethers.getContractFactory("QuadrataWhitelist");
 
   const whitelist = await hre.upgrades.deployProxy(
     QuadrataWhitelist,
-    [defaultStatus, whitelistMode, reader || QUADRATA_READER, requiredAMLScore],
+    [defaultStatus, whitelistMode, reader || QUADRATA_READER, requiredAMLScore, requiredAttributes],
     {
       kind: "uups",
       unsafeAllow: [],
@@ -279,5 +321,14 @@ async function deployWhitelist(options) {
       .grantComponentRole(whitelist.address, getRole("LP_WHITELIST_ADMIN_ROLE"), admin.address);
   });
 
-  return { QuadrataWhitelist, whitelist, pool, accessManager, defaultStatus, whitelistMode, requiredAMLScore };
+  return {
+    QuadrataWhitelist,
+    whitelist,
+    pool,
+    accessManager,
+    defaultStatus,
+    whitelistMode,
+    requiredAMLScore,
+    requiredAttributes,
+  };
 }
