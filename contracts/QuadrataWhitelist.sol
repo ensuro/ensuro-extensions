@@ -20,7 +20,10 @@ contract QuadrataWhitelist is LPManualWhitelist {
 
   bytes32[] internal _requiredAttributes;
 
+  uint256 internal _requiredAMLScore;
+
   event QuadrataWhitelistModeChanged(WhitelistStatus newMode);
+  event RequiredAMLScoreChanged(uint256 requiredAMLScore);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   // solhint-disable-next-line no-empty-blocks
@@ -30,40 +33,60 @@ contract QuadrataWhitelist is LPManualWhitelist {
    *
    * @param defaultStatus The default status to use for undefined whitelist status
    * @param quadrataWhitelistMode The whitelist status to be used when whitelisting with quadrata
-   * @param reader The QuadReader to be used
+   * @param reader_ The QuadReader to be used
    */
   function initializeQ(
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader
+    IQuadReader reader_,
+    uint256 requiredAMLScore_
   ) public initializer {
-    __QuadrataWhitelist_init(defaultStatus, quadrataWhitelistMode, reader);
+    __QuadrataWhitelist_init(defaultStatus, quadrataWhitelistMode, reader_, requiredAMLScore_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __QuadrataWhitelist_init(
     WhitelistStatus calldata defaultStatus,
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader
+    IQuadReader reader_,
+    uint256 requiredAMLScore_
   ) internal onlyInitializing {
     __LPManualWhitelist_init(defaultStatus);
-    __QuadrataWhitelist_init_unchained(quadrataWhitelistMode, reader);
+    __QuadrataWhitelist_init_unchained(quadrataWhitelistMode, reader_, requiredAMLScore_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __QuadrataWhitelist_init_unchained(
     WhitelistStatus calldata quadrataWhitelistMode,
-    IQuadReader reader
+    IQuadReader reader_,
+    uint256 requiredAMLScore_
   ) internal onlyInitializing {
-    _reader = reader;
-    _whitelistMode = quadrataWhitelistMode;
+    _reader = reader_;
 
     // TODO: this should be configurable
     _requiredAttributes.push(keccak256("DID"));
     _requiredAttributes.push(keccak256("COUNTRY"));
     _requiredAttributes.push(keccak256("AML"));
 
+    _requiredAMLScore = requiredAMLScore_;
+    emit RequiredAMLScoreChanged(_requiredAMLScore);
+
+    _whitelistMode = quadrataWhitelistMode;
     emit QuadrataWhitelistModeChanged(_whitelistMode);
+  }
+
+  function _validateRequiredAttribute(
+    bytes32 attributeKey,
+    IQuadPassportStore.Attribute memory attribute
+  ) internal view {
+    require(
+      attribute.value != bytes32(0),
+      "User has no passport or is missing required attributes"
+    );
+
+    if (attributeKey == keccak256("AML")) {
+      require(uint256(attribute.value) >= _requiredAMLScore, "AML score < required AML score");
+    }
   }
 
   function quadrataWhitelist(address provider) public onlyComponentRole(QUADRATA_WHITELIST_ROLE) {
@@ -74,11 +97,10 @@ contract QuadrataWhitelist is LPManualWhitelist {
       _requiredAttributes
     );
 
+    require(attributes.length == _requiredAttributes.length, "Sanity check failed");
+
     for (uint256 i = 0; i < attributes.length; i++) {
-      require(
-        attributes[i].value != bytes32(0),
-        "User has no passport or is missing required attributes"
-      );
+      _validateRequiredAttribute(_requiredAttributes[i], attributes[i]);
     }
 
     _whitelistAddress(provider, _whitelistMode);
@@ -93,5 +115,16 @@ contract QuadrataWhitelist is LPManualWhitelist {
 
   function reader() external view virtual returns (IQuadReader) {
     return _reader;
+  }
+
+  function requiredAMLScore() external view virtual returns (uint256) {
+    return _requiredAMLScore;
+  }
+
+  function setRequiredAMLScore(
+    uint256 requiredAMLScore_
+  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+    _requiredAMLScore = requiredAMLScore_;
+    emit RequiredAMLScoreChanged(_requiredAMLScore);
   }
 }
