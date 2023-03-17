@@ -111,6 +111,7 @@ describe("Quadrata whitelist", () => {
 
   fork.it("Does not whitelist user with no passport or missing attributes", 33222066, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
+    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
 
     const userWithoutPassport = "0x4c56A8EFdd7aFd6A708641e3754801fE0538eb80";
     const reader = await hre.ethers.getContractAt("IQuadReader", QUADRATA_READER);
@@ -125,9 +126,16 @@ describe("Quadrata whitelist", () => {
       "User has no passport or is missing required attributes"
     );
 
-    // TODO: mint a passport with only some attributes and improve this test with the different cases:
-    //   - DID but no country
-    //   - DID but no AML
+    const userWithPassportMissingAML = "0x9CA0105B43Df30fa9f0BFbFD2611073A20519020";
+    // Baseline check: user has no AML and therefore no country or DID either
+    await assertAttributeValue(userWithPassportMissingAML, attributes.DID, hre.ethers.constants.HashZero);
+    await assertAttributeValue(userWithPassportMissingAML, attributes.COUNTRY, hre.ethers.constants.HashZero);
+    await assertAttributeValue(userWithPassportMissingAML, attributes.AML, hre.ethers.constants.HashZero);
+
+    // Can't be whitelisted
+    await expect(whitelist.connect(operative).quadrataWhitelist(userWithoutPassport)).to.be.revertedWith(
+      "User has no passport or is missing required attributes"
+    );
   });
 
   fork.it("Whitelists user with fully compliant passport", 33222066, async () => {
