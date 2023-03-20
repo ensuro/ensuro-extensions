@@ -266,6 +266,12 @@ describe("Quadrata whitelist", () => {
       .to.emit(whitelist, "RequiredAttributeAdded")
       .withArgs(attributes.CRED_PROTOCOL_SCORE);
     expect(await whitelist.requiredAttributes()).to.eql([...requiredAttributes, attributes.CRED_PROTOCOL_SCORE]);
+
+    // Adding is idempotent, so adding the same attribute again does not emit
+    await expect(whitelist.connect(admin).addRequiredAttribute(attributes.CRED_PROTOCOL_SCORE)).not.to.emit(
+      whitelist,
+      "RequiredAttributeAdded"
+    );
   });
 
   fork.it("Only allows admin to remove required attributes", 33235866, async () => {
