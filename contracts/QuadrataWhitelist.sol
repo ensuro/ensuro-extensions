@@ -47,6 +47,10 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
    *
    * @param defaultStatus The default status to use for undefined whitelist status
    * @param quadrataWhitelistMode The whitelist status to be used when whitelisting with quadrata
+   * @param requiredAMLScore_ The minimum AML score required for whitelisting
+   * @param requiredAttributes_ An array of attributes that are required for whitelisting.
+   *                            Attributes are represented as the keccak hash of the attribute name.
+   *                            Check quadrata's docs: https://docs.quadrata.com/integration/additional-information/constants#attributes
    */
   function initializeQuadrata(
     WhitelistStatus calldata defaultStatus,
@@ -95,6 +99,14 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
     emit QuadrataWhitelistModeChanged(_whitelistMode);
   }
 
+  /**
+   * @dev Validates that the attribute exists, and for some attributes performs additional validations.
+   *      Current validations:
+   *        - AML > required AML score
+   *        - Country not blacklisted
+   * @param attributeKey The attribute that will be validated. See `requiredAttributes_` in `initializeQuadrata`
+   * @param attribute The attribute itself as returned by QuadReader
+   */
   function _validateRequiredAttribute(
     bytes32 attributeKey,
     IQuadPassportStore.Attribute memory attribute
@@ -111,6 +123,11 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
     }
   }
 
+  /**
+   * @dev Whitelist a provider that has a Quadrata passport with the required attributes.
+   *      The provider will be whitelisted according to the whitelistMode.
+   * @param provider The provider address.
+   */
   function quadrataWhitelist(address provider) public onlyComponentRole(QUADRATA_WHITELIST_ROLE) {
     require(provider != address(0), "Provider cannot be the zero address");
 
