@@ -287,6 +287,39 @@ describe("Quadrata whitelist", () => {
   });
 });
 
+describe("Quadrata whitelist initializer", () => {
+  it("Doesn't allow initialization on the implementation directly", async () => {
+    const [, pool, reader] = await hre.ethers.getSigners();
+    const QuadrataWhitelist = await hre.ethers.getContractFactory("QuadrataWhitelist");
+    const wl = await QuadrataWhitelist.deploy(pool.address, reader.address);
+    await expect(
+      wl.initializeQuadrata(Array(4).fill(WhitelistStatus.whitelisted), Array(4).fill(WhitelistStatus.notdefined), 5, [
+        attributes.DID,
+      ])
+    ).to.be.revertedWith("Initializable: contract is already initialized");
+  });
+
+  it("Doesn't allow initialization on the proxy", async () => {
+    const [, pool, reader] = await hre.ethers.getSigners();
+    const QuadrataWhitelist = await hre.ethers.getContractFactory("QuadrataWhitelist");
+    const wl = await hre.upgrades.deployProxy(
+      QuadrataWhitelist,
+      [Array(4).fill(WhitelistStatus.whitelisted), Array(4).fill(WhitelistStatus.notdefined), 5, [attributes.DID]],
+      {
+        kind: "uups",
+        unsafeAllow: [],
+        constructorArgs: [pool.address, reader.address],
+        initializer: "initializeQuadrata",
+      }
+    );
+    await expect(
+      wl.initializeQuadrata(Array(4).fill(WhitelistStatus.whitelisted), Array(4).fill(WhitelistStatus.notdefined), 5, [
+        attributes.DID,
+      ])
+    ).to.be.revertedWith("Initializable: contract is already initialized");
+  });
+});
+
 async function deployPassportInspector(readerAddress) {
   const PassportInspector = await hre.ethers.getContractFactory("PassportInspector");
   const inspector = await PassportInspector.deploy(readerAddress);
