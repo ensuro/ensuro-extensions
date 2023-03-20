@@ -8,12 +8,14 @@ import {PolicyPoolComponent} from "@ensuro/core/contracts/PolicyPoolComponent.so
 import {IQuadReader} from "@quadrata/contracts/interfaces/IQuadReader.sol";
 import {IQuadPassportStore} from "@quadrata/contracts/interfaces/IQuadPassportStore.sol";
 import {QuadReaderUtils} from "@quadrata/contracts/utility/QuadReaderUtils.sol";
-import {QuadConstant} from "@quadrata/contracts/storage/QuadConstant.sol";
 
-contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
+contract QuadrataWhitelist is LPManualWhitelist {
   using QuadReaderUtils for bytes32;
 
   bytes32 public constant QUADRATA_WHITELIST_ROLE = keccak256("QUADRATA_WHITELIST_ROLE");
+
+  bytes32 internal constant ATTRIBUTE_COUNTRY = keccak256("COUNTRY");
+  bytes32 internal constant ATTRIBUTE_AML = keccak256("AML");
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IQuadReader internal immutable _reader;
@@ -206,4 +208,11 @@ contract QuadrataWhitelist is LPManualWhitelist, QuadConstant {
         return;
       }
   }
+
+  /**
+   * @dev This empty reserved space is put in place to allow future versions to add new
+   * variables without shifting down storage in the inheritance chain.
+   * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+   */
+  uint256[46] private __gap;
 }
