@@ -104,7 +104,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
   /**
    * @dev Validates that the attribute exists, and for some attributes performs additional validations.
    *      Current validations:
-   *        - AML > required AML score
+   *        - AML <= required AML score
    *        - Country not blacklisted
    * @param attributeKey The attribute that will be validated. See `requiredAttributes_` in `initializeQuadrata`
    * @param attribute The attribute itself as returned by QuadReader
@@ -119,7 +119,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     );
 
     if (attributeKey == ATTRIBUTE_AML) {
-      require(uint256(attribute.value) >= _requiredAMLScore, "AML score < required AML score");
+      require(uint256(attribute.value) <= _requiredAMLScore, "AML score > required AML score");
     } else if (attributeKey == ATTRIBUTE_COUNTRY) {
       require(!_countryBlacklisted[attribute.value], "Country not allowed");
     }

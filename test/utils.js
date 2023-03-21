@@ -5,19 +5,20 @@
  * block number to the test name.
  */
 exports.fork = {
-  it: (name, blockNumber, test) => {
+  it: (name, blockNumber, test, alchemyUrlEnv = "ALCHEMY_URL") => {
     const skipForkTests = process.env.SKIP_FORK_TESTS === "true";
     const fullName = `[FORK ${blockNumber}] ${name}`;
 
     const wrapped = async (...args) => {
-      if (process.env.ALCHEMY_URL === undefined) throw new Error("Define envvar ALCHEMY_URL for this test");
+      let alchemyUrl = process.env[alchemyUrlEnv];
+      if (alchemyUrl === undefined) throw new Error(`Define envvar ${alchemyUrlEnv} for this test`);
 
       await hre.network.provider.request({
         method: "hardhat_reset",
         params: [
           {
             forking: {
-              jsonRpcUrl: process.env.ALCHEMY_URL,
+              jsonRpcUrl: alchemyUrl,
               blockNumber: blockNumber,
             },
           },

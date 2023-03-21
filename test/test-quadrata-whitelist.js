@@ -4,14 +4,25 @@ const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 const { WhitelistStatus } = require("@ensuro/core/js/deploy");
 
-const { getRole, accessControlMessage } = require("@ensuro/core/js/test-utils");
+const { getRole, accessControlMessage, grantRole } = require("@ensuro/core/js/test-utils");
 
 const { fork } = require("./utils");
 
 // Mumbai addresses
-const POLICYPOOL_ADDRESS = "0x77066b63c710B4fA352018E0D8Af0e5cC7243181";
-const QUADRATA_READER = "0x5C6b81212c0A654B6e247F8DEfeC9a95c63EF954";
-const ADMIN_EOA = "0xD758aF6BFC2f0908D7C5f89942be52C36a6b3cab";
+const mumbaiAddresses = {
+  pool: "0x77066b63c710B4fA352018E0D8Af0e5cC7243181",
+  quadrataReader: "0x5C6b81212c0A654B6e247F8DEfeC9a95c63EF954",
+  admin: "0xD758aF6BFC2f0908D7C5f89942be52C36a6b3cab",
+};
+
+// Polygon addresses
+const polygonAddresses = {
+  pool: "0xD74A28274C4B1a116aDd9857FC0E8F5e8fAC2497",
+  quadrataReader: "0xFEB98861425C6d2819c0d0Ee70E45AbcF71b43Da",
+  quadrataGov: "0xBfa59A31b379A62304327386bC2b03096D7695B3",
+  admin: "0xCfcd29CD20B6c64A4C0EB56e29E5ce3CD69336D2",
+  quadAdmin: "0x76694A182dB047067521c73161Ebf3Db5Ca988d3",
+};
 
 const keccak256 = (str) => hre.ethers.utils.keccak256(hre.ethers.utils.toUtf8Bytes(str));
 
@@ -54,14 +65,14 @@ describe("Quadrata whitelist", () => {
     expect(requiredAttributes).to.have.members([attributes.DID, attributes.COUNTRY, attributes.AML]);
     expect(requiredAttributes.length).to.equal(3);
 
-    expect(await whitelist.reader()).to.equal(QUADRATA_READER);
+    expect(await whitelist.reader()).to.equal(mumbaiAddresses.quadrataReader);
   });
 
   fork.it("Allows only QUADRATA_WHITELIST_ROLE to whitelist", 33222066, async () => {
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
-    const adminEOA = await hre.ethers.getImpersonatedSigner(ADMIN_EOA);
+    const adminEOA = await hre.ethers.getImpersonatedSigner(mumbaiAddresses.admin);
 
-    const { whitelist, accessManager, whitelistMode } = await deployWhitelist();
+    const { whitelist, accessManager, whitelistMode } = await deployWhitelist({ requiredAMLScore: 9 });
 
     await expect(whitelist.connect(nobody).quadrataWhitelist(lp.address)).to.be.revertedWith(
       accessControlMessage(nobody.address, whitelist.address, "QUADRATA_WHITELIST_ROLE")
@@ -78,8 +89,11 @@ describe("Quadrata whitelist", () => {
 
   fork.it("Allows only admin to set the whitelist mode", 33222066, async () => {
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
-    const adminEOA = await hre.ethers.getImpersonatedSigner(ADMIN_EOA);
-    const { whitelist, accessManager } = await deployWhitelist({ whitelisters: [operative] });
+    const adminEOA = await hre.ethers.getImpersonatedSigner(mumbaiAddresses.admin);
+    const { whitelist, accessManager } = await deployWhitelist({
+      whitelisters: [operative],
+      requiredAMLScore: 9,
+    });
 
     const newMode = Array(4).fill(WhitelistStatus.whitelisted);
 
@@ -111,10 +125,10 @@ describe("Quadrata whitelist", () => {
 
   fork.it("Does not whitelist user with no passport or missing attributes", 33242153, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
-    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+    const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
 
     const userWithoutPassport = "0x4c56A8EFdd7aFd6A708641e3754801fE0538eb80";
-    const reader = await hre.ethers.getContractAt("IQuadReader", QUADRATA_READER);
+    const reader = await hre.ethers.getContractAt("IQuadReader", mumbaiAddresses.quadrataReader);
 
     // User has no passport
     expect(await reader.balanceOf(userWithoutPassport, attributes.DID)).to.equal(0);
@@ -143,8 +157,11 @@ describe("Quadrata whitelist", () => {
   });
 
   fork.it("Whitelists user with fully compliant passport", 33222066, async () => {
-    const { whitelist, whitelistMode } = await deployWhitelist({ whitelisters: [operative] });
-    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+    const { whitelist, whitelistMode } = await deployWhitelist({
+      whitelisters: [operative],
+      requiredAMLScore: 10,
+    });
+    const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
 
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
 
@@ -163,9 +180,54 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, whitelistMode);
   });
 
+  fork.it(
+    "Whitelists user with fully compliant passport - POLYGON",
+    40570967,
+    async () => {
+      const governance = await hre.ethers.getContractAt("IQuadGovernance", polygonAddresses.quadrataGov);
+      const quadAdmin = await hre.ethers.getImpersonatedSigner(polygonAddresses.quadAdmin);
+      // Send some gas to the admin
+      owner.sendTransaction({
+        to: quadAdmin.address,
+        value: hre.ethers.utils.parseEther("6.5"),
+      });
+      const { whitelist, whitelistMode } = await deployWhitelist({ whitelisters: [operative] }, polygonAddresses);
+      // Preapprove the whitelist contract
+      expect(await governance.preapproval(whitelist.address)).to.be.false;
+      await governance.connect(quadAdmin).setPreapprovals([whitelist.address], [true]);
+      expect(await governance.preapproval(whitelist.address)).to.be.true;
+
+      const { inspector, assertAttributeValue } = await deployPassportInspector(polygonAddresses.quadrataReader);
+
+      const userWithPassport = "0x4d68Cf31d613070b18E406AFd6A42719a62a0785";
+
+      // Preapprove the inspector contract
+      expect(await governance.preapproval(inspector.address)).to.be.false;
+      await governance.connect(quadAdmin).setPreapprovals([inspector.address], [true]);
+      expect(await governance.preapproval(inspector.address)).to.be.true;
+
+      // Baseline check: passport with DID, non-blacklisted country and highest AML score
+      await assertAttributeValue(
+        userWithPassport,
+        attributes.DID,
+        "0x0b069a55c9228fb2bd84399faf316f97db44272c7ae4a20bd26d26f06b45ef58"
+      );
+      await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("AR"));
+      await assertAttributeValue(userWithPassport, attributes.AML, hre.ethers.utils.hexZeroPad("0x1", 32));
+
+      // Can be whitelisted
+      await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport))
+        .to.emit(whitelist, "LPWhitelistStatusChanged")
+        .withArgs(userWithPassport, whitelistMode);
+    },
+    "ALCHEMY_URL_POLYGON"
+  );
+
   fork.it("Emits events with passport attributes on whitelist", 33222066, async () => {
-    const { whitelist, whitelistMode } = await deployWhitelist({ whitelisters: [operative] });
-    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+    const { whitelist } = await deployWhitelist({
+      whitelisters: [operative],
+      requiredAMLScore: 9,
+    });
 
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
 
@@ -181,9 +243,9 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, attributes.AML, hre.ethers.utils.hexZeroPad("0x9", 32));
   });
 
-  fork.it("Validates that user aml score is above threshold", 33235866, async () => {
-    const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
-    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+  fork.it("Validates that user aml score is under threshold", 33235866, async () => {
+    const { whitelist } = await deployWhitelist({ whitelisters: [operative], requiredAMLScore: 3 });
+    const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
 
     const userWithPassport = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199";
 
@@ -198,7 +260,7 @@ describe("Quadrata whitelist", () => {
 
     // Cannot be whitelisted
     await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport)).to.be.revertedWith(
-      "AML score < required AML score"
+      "AML score > required AML score"
     );
   });
 
@@ -214,6 +276,8 @@ describe("Quadrata whitelist", () => {
     await expect(whitelist.connect(admin).setRequiredAMLScore(2))
       .to.emit(whitelist, "RequiredAMLScoreChanged")
       .withArgs(2);
+
+    expect(await whitelist.requiredAMLScore()).to.equal(2);
   });
 
   fork.it("Only allows admin to add/remove country from blacklist", 33235866, async () => {
@@ -232,7 +296,7 @@ describe("Quadrata whitelist", () => {
 
   fork.it("Does not whitelist user from blacklisted country", 33235866, async () => {
     const { whitelist } = await deployWhitelist({ admins: [admin], whitelisters: [operative] });
-    const { assertAttributeValue } = await deployPassportInspector(QUADRATA_READER);
+    const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
 
     // Baseline check: passport with DID, non-blacklisted country and highest AML score
@@ -338,7 +402,7 @@ async function deployPassportInspector(readerAddress) {
   return { inspector, assertAttributeValue };
 }
 
-async function deployWhitelist(options) {
+async function deployWhitelist(options, addresses = mumbaiAddresses) {
   let { defaultStatus, whitelistMode, reader, requiredAMLScore, requiredAttributes, whitelisters, admins } =
     options || {};
 
@@ -361,22 +425,21 @@ async function deployWhitelist(options) {
   requiredAttributes = requiredAttributes || [attributes.DID, attributes.COUNTRY, attributes.AML];
 
   const QuadrataWhitelist = await hre.ethers.getContractFactory("QuadrataWhitelist");
-
   const whitelist = await hre.upgrades.deployProxy(
     QuadrataWhitelist,
     [defaultStatus, whitelistMode, requiredAMLScore, requiredAttributes],
     {
       kind: "uups",
       unsafeAllow: [],
-      constructorArgs: [POLICYPOOL_ADDRESS, reader || QUADRATA_READER],
+      constructorArgs: [addresses.pool, reader || addresses.quadrataReader],
       initializer: "initializeQuadrata",
     }
   );
 
-  const pool = await hre.ethers.getContractAt("PolicyPool", POLICYPOOL_ADDRESS);
+  const pool = await hre.ethers.getContractAt("PolicyPool", addresses.pool);
   const accessManager = await hre.ethers.getContractAt("AccessManager", await pool.access());
 
-  const adminEOA = await hre.ethers.getImpersonatedSigner(ADMIN_EOA);
+  const adminEOA = await hre.ethers.getImpersonatedSigner(addresses.admin);
 
   (whitelisters || []).map(async (whitelister) => {
     await accessManager
