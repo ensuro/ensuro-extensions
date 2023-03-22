@@ -21,4 +21,9 @@ jobs:
       - run: npx hardhat test
         env:
           REPORT_GAS: "1"
+          ALCHEMY_URL: ${{ secrets.ALCHEMY_URL }}
+          ALCHEMY_URL_POLYGON: ${{ secrets.ALCHEMY_URL_POLYGON }}
       - run: npx hardhat coverage
+        env:
+          ALCHEMY_URL: ${{ secrets.ALCHEMY_URL }}
+          ALCHEMY_URL_POLYGON: ${{ secrets.ALCHEMY_URL_POLYGON }}
