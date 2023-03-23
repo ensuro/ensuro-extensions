@@ -68,6 +68,10 @@ contract QuadrataWhitelist is LPManualWhitelist {
     );
   }
 
+  function initialize(WhitelistStatus calldata) public override initializer {
+    revert("Parent initializer disabled");
+  }
+
   // solhint-disable-next-line func-name-mixedcase
   function __QuadrataWhitelist_init(
     WhitelistStatus calldata defaultStatus,

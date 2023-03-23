@@ -388,6 +388,19 @@ describe("Quadrata whitelist initializer", () => {
       ])
     ).to.be.revertedWith("Initializable: contract is already initialized");
   });
+
+  it("Doesn't allow initialization calling initialize of the parent contract", async () => {
+    const [, pool, reader] = await hre.ethers.getSigners();
+    const QuadrataWhitelist = await hre.ethers.getContractFactory("QuadrataWhitelist");
+    await expect(
+      hre.upgrades.deployProxy(QuadrataWhitelist, [Array(4).fill(WhitelistStatus.whitelisted)], {
+        kind: "uups",
+        unsafeAllow: [],
+        constructorArgs: [pool.address, reader.address],
+        initializer: "initialize",
+      })
+    ).to.be.revertedWith("Parent initializer disabled");
+  });
 });
 
 async function deployPassportInspector(readerAddress) {
