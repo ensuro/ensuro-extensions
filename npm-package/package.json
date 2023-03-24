@@ -1,0 +1,33 @@
+{
+  "name": "@ensuro/extensions",
+  "description": "Extension contracts that operate with the Ensuro Protocol",
+  "version": "%%VERSION%%",
+  "files": [
+    "**/*.sol",
+    "/build/contracts/*.json",
+    "/build/interfaces/*.json",
+    "/js/*.js",
+    "/scripts/*.sh",
+    "/scripts/*.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:ensuro/ensuro-extensions.git"
+  },
+  "keywords": [
+    "solidity",
+    "ethereum",
+    "smart",
+    "contracts",
+    "decentralized",
+    "insurance",
+    "ensuro",
+    "extension"
+  ],
+  "author": "Ensuro <guillermo@ensuro.co>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/ensuro/ensuro-extensions/issues"
+  },
+  "homepage": "https://github.com/ensuro/ensuro-extensions#readme"
+}
