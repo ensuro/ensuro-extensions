@@ -49,6 +49,7 @@ jobs:
 
       - run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_AUTOMATION_TOKEN }}" > ./build/npm-package/.npmrc
 
+      - run: npm config set registry https://registry.npmjs.com/
       - run: |
           RELEASE_TAG="${{ github.event.inputs.tag }}"
           if [ -z "$RELEASE_TAG" ]; then
