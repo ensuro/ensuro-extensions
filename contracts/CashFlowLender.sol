@@ -321,6 +321,9 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
    * Requirements:
    * - Caller has OWNER_ROLE
    *
+   * Emits:
+   * - CustomerChanged
+   *
    * @param customer_ The new address of the customer
    */
   function setCustomer(address customer_) external onlyRole(OWNER_ROLE) {

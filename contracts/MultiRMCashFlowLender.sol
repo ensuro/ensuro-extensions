@@ -27,6 +27,18 @@ contract MultiRMCashFlowLender is CashFlowLender {
     return (address(_activeRiskModule) != address(0)) ? _activeRiskModule : _riskModule;
   }
 
+  /**
+   * @dev Sets the address of the active riskModule, the one that will receive the new policies. If address(0) is
+   *      received, then the _riskModule indicated in contract constructor will be used.
+   *
+   * Requirements:
+   * - Caller has ACTIVE_RM_ADMIN_ROLE
+   *
+   * Emits:
+   * - ActiveRiskModuleChanged
+   *
+   * @param riskModule_ The new address of the new riskModule
+   */
   function setActiveRiskModule(
     SignedQuoteRiskModule riskModule_
   ) external onlyRole(ACTIVE_RM_ADMIN_ROLE) {
