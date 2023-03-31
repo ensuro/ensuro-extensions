@@ -9,7 +9,7 @@ import {IQuadPassportStore} from "@quadrata/contracts/interfaces/IQuadPassportSt
 contract PassportInspector {
   event PassportAttributes(bytes32 attribute, bytes32 value);
 
-  IQuadReader _reader;
+  IQuadReader internal _reader;
 
   constructor(IQuadReader reader) {
     _reader = reader;

@@ -10,6 +10,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
+import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
 
 /**
@@ -63,14 +64,22 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     _customer = customer_;
     emit CustomerChanged(customer_);
     // Infinite approval to the PolicyPool to pay the premiums
-    _riskModule.currency().approve(address(_riskModule.policyPool()), type(uint256).max);
+    _currency().approve(address(_pool()), type(uint256).max);
   }
 
   // solhint-disable-next-line no-empty-blocks
   function _authorizeUpgrade(address newImpl) internal view override onlyRole(GUARDIAN_ROLE) {}
 
+  function _pool() internal view returns (IPolicyPool) {
+    return _riskModule.policyPool();
+  }
+
+  function _currency() internal view returns (IERC20Metadata) {
+    return _pool().currency();
+  }
+
   function _balance() internal view returns (uint256) {
-    return _riskModule.currency().balanceOf(address(this));
+    return _currency().balanceOf(address(this));
   }
 
   function _increaseDebt(uint256 amount) internal {
@@ -103,7 +112,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     uint40 quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) returns (Policy.PolicyData memory createdPolicy) {
     uint256 balanceBefore = _balance();
-    createdPolicy = _riskModule.newPolicyFull(
+    createdPolicy = riskModule().newPolicyFull(
       payout,
       premium,
       lossProb,
@@ -139,7 +148,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     uint40 quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
-    policyId = _riskModule.newPolicy(
+    policyId = riskModule().newPolicy(
       payout,
       premium,
       lossProb,
@@ -180,7 +189,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
      * Calls newPolicy instead of newPolicyPaidByHolder because customer == msg.sender. We just keep this method
      * to work as a no-code change replacement of the SignedQuoteRiskModule
      */
-    policyId = _riskModule.newPolicy(
+    policyId = riskModule().newPolicy(
       payout,
       premium,
       lossProb,
@@ -204,7 +213,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
         payout -= _debt;
         _decreaseDebt(_debt);
       }
-      _riskModule.currency().safeTransfer(_customer, payout);
+      _currency().safeTransfer(_customer, payout);
     }
   }
 
@@ -212,14 +221,14 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     Policy.PolicyData calldata policy,
     uint256 payout
   ) external onlyRole(RESOLVER_ROLE) {
-    _riskModule.resolvePolicy(policy, payout);
+    SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
   }
 
   function resolvePolicyFullPayout(
     Policy.PolicyData calldata policy,
     bool customerWon
   ) external onlyRole(RESOLVER_ROLE) {
-    _riskModule.resolvePolicyFullPayout(policy, customerWon);
+    SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicyFullPayout(policy, customerWon);
   }
 
   function onERC721Received(
@@ -250,10 +259,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     uint256,
     uint256 amount
   ) external override returns (bytes4) {
-    require(
-      msg.sender == address(_riskModule.policyPool()),
-      "Only the PolicyPool should call this method"
-    );
+    require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _repayDebtTransferRest(amount);
     return IPolicyHolder.onPayoutReceived.selector;
   }
@@ -282,7 +288,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
       amount = Math.min(amount, _balance());
     }
     if (amount > 0) {
-      _riskModule.currency().safeTransfer(destination, amount);
+      _currency().safeTransfer(destination, amount);
       emit Withdrawal(destination, amount);
     }
     return amount;
@@ -305,7 +311,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
   /**
    * @dev Returns the address of the wrapped riskModule
    */
-  function riskModule() external view returns (SignedQuoteRiskModule) {
+  function riskModule() public view virtual returns (SignedQuoteRiskModule) {
     return _riskModule;
   }
 
@@ -314,6 +320,9 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
    *
    * Requirements:
    * - Caller has OWNER_ROLE
+   *
+   * Emits:
+   * - CustomerChanged
    *
    * @param customer_ The new address of the customer
    */
@@ -331,7 +340,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
   function repayDebt(uint256 amount) external {
     amount = Math.min(_debt, amount);
     _decreaseDebt(amount);
-    _riskModule.currency().safeTransferFrom(_msgSender(), address(this), amount);
+    _currency().safeTransferFrom(_msgSender(), address(this), amount);
   }
 
   /**
