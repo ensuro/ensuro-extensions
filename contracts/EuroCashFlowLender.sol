@@ -44,6 +44,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
 
   event DebtChanged(int256 currentDebt);
   event CustomerChanged(address customer);
+  event BufferChanged(uint256 newBuffer);
   event Withdrawal(address destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
@@ -54,7 +55,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     );
     require(
       address(assetOracle_) != address(0),
-      "EuroCashFlowLender: assetOracle_ cannot be the zero address"
+      "EuroCashFlowLender: assetOracle_ cannot be zero address"
     );
     _disableInitializers();
     _riskModule = riskModule_;
@@ -392,6 +393,15 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   function setCustomer(address customer_) external onlyRole(OWNER_ROLE) {
     _customer = customer_;
     emit CustomerChanged(customer_);
+  }
+
+  function buffer() external view virtual returns (uint256) {
+    return _buffer;
+  }
+
+  function setBuffer(uint256 buffer_) external onlyRole(OWNER_ROLE) {
+    _buffer = buffer_;
+    emit BufferChanged(_buffer);
   }
 
   /**
