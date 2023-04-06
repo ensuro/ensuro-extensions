@@ -4,6 +4,7 @@ pragma solidity 0.8.16;
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
@@ -21,6 +22,8 @@ import {WadRayMath} from "@ensuro/core/contracts/dependencies/WadRayMath.sol";
  * @dev This module acts as a proxy for a TrustfulRiskModule, paying the premium and retaining the ownership of the
  *      policies as collateral. When there's a payout, the funds are retained to pay the debt and the remaining is
  *      transferred to the customer address.
+ *      The module is designed to be used with a EUR oracle, but it can be used with any currency
+ *
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
@@ -33,18 +36,21 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
   bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
+  bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
+
+  uint8 internal constant WAD_DECIMALS = 18;
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   TrustfulRiskModule internal immutable _riskModule;
-  address internal _customer;
-  uint256 internal _buffer;
-  int256 internal _debt;
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   AggregatorV3Interface internal immutable _assetOracle;
+  address internal _customer;
+  uint256 internal _fxRiskBuffer; // in wad (18 decimals)
+  int256 internal _debt; // in Euro
 
   event DebtChanged(int256 currentDebt);
   event CustomerChanged(address customer);
-  event BufferChanged(uint256 newBuffer);
+  event FxRiskBufferChanged(uint256 _newRiskBuffer);
   event Withdrawal(address destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
@@ -66,17 +72,28 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
    * @dev Initializes the EuroCashFlowLender
    * @param customer_ Address of the customer who will receive the payouts when debt = 0
    */
-  function initialize(address customer_, uint256 buffer_) public initializer {
-    __EuroCashFlowLender_init(customer_, buffer_);
+  function initialize(address customer_, uint256 fxRiskBuffer_) public virtual initializer {
+    __EuroCashFlowLender_init(customer_, fxRiskBuffer_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __EuroCashFlowLender_init(address customer_, uint256 buffer_) internal onlyInitializing {
+  function __EuroCashFlowLender_init(
+    address customer_,
+    uint256 fxRiskBuffer_
+  ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
+    __EuroCashFlowLender_init_unchained(customer_, fxRiskBuffer_);
+  }
+
+  // solhint-disable-next-line func-name-mixedcase
+  function __EuroCashFlowLender_init_unchained(
+    address customer_,
+    uint256 fxRiskBuffer_
+  ) internal onlyInitializing {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     _customer = customer_;
-    _buffer = buffer_;
+    _fxRiskBuffer = fxRiskBuffer_;
     emit CustomerChanged(customer_);
     // Infinite approval to the PolicyPool to pay the premiums
     _currency().approve(address(_pool()), type(uint256).max);
@@ -102,7 +119,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
    * @param amount in Euro
    */
   function _increaseDebt(uint256 amount) internal {
-    _debt += amount >= 0 ? int256(amount) : -int256(amount);
+    _debt += int256(amount);
     emit DebtChanged(_debt);
   }
 
@@ -111,13 +128,34 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
    * @param amount in Euro
    */
   function _decreaseDebt(uint256 amount) internal {
-    _debt -= amount >= 0 ? int256(amount) : -int256(amount);
+    _debt -= int256(amount);
     emit DebtChanged(_debt);
   }
 
-  function _getEurUsdPrice() internal view returns (uint256) {
+  function _transformPolicyParams(
+    uint256 payout,
+    uint256 premium,
+    bytes32 policyData
+  ) internal view returns (uint256, uint256, uint96) {
+    uint256 eurUsdPrice = getEurUsdPrice();
+    payout = payout.wadMul(eurUsdPrice).wadMul(_fxRiskBuffer);
+    premium = premium.wadMul(eurUsdPrice);
+    uint96 internalId = uint96(uint256(policyData) % 2 ** 96);
+    return (payout, premium, internalId);
+  }
+
+  function getEurUsdPrice() public view returns (uint256) {
     (, int256 price, , , ) = _assetOracle.latestRoundData();
-    return uint256(price);
+    return _scalePrice(SafeCast.toUint256(price), _assetOracle.decimals(), WAD_DECIMALS);
+  }
+
+  function _scalePrice(
+    uint256 price,
+    uint8 priceDecimals,
+    uint8 decimals
+  ) internal pure returns (uint256) {
+    if (priceDecimals < decimals) return price * 10 ** (decimals - priceDecimals);
+    else return price / 10 ** (priceDecimals - decimals);
   }
 
   function _validatePolicyQuote(
@@ -141,7 +179,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
      */
     bytes32 quoteHash = ECDSA.toEthSignedMessageHash(
       abi.encodePacked(
-        address(_riskModule),
+        address(riskModule()),
         payout,
         premium,
         lossProb,
@@ -192,21 +230,20 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
       quoteSignatureVS
     );
 
-    // Convierto el payout y premium a USD para mandarlo al RM
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    payout = payout.wadMul(eurUsdPrice).wadMul(_buffer);
-    uint256 usdPremium = premium.wadMul(eurUsdPrice);
-
-    uint96 internalId = uint96(uint256(policyData) % 2 ** 96);
-    createdPolicy = riskModule().newPolicyFull(
+    (uint256 usdPayout, uint256 usdPremium, uint96 internalId) = _transformPolicyParams(
       payout,
+      premium,
+      policyData
+    );
+    _increaseDebt(premium);
+    createdPolicy = riskModule().newPolicyFull(
+      usdPayout,
       usdPremium,
       lossProb,
       expiration,
       address(this),
       internalId
     );
-    _increaseDebt(premium);
     return createdPolicy;
   }
 
@@ -248,38 +285,41 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
       quoteSignatureR,
       quoteSignatureVS
     );
-    // Convierto el payout y premium a USD
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    payout = payout.wadMul(eurUsdPrice).wadMul(_buffer);
-    uint256 usdPremium = premium.wadMul(eurUsdPrice);
-
-    uint96 internalId = uint96(uint256(policyData) % 2 ** 96);
-    policyId = riskModule().newPolicy(
+    (uint256 usdPayout, uint256 usdPremium, uint96 internalId) = _transformPolicyParams(
       payout,
+      premium,
+      policyData
+    );
+
+    _increaseDebt(premium);
+    policyId = riskModule().newPolicy(
+      usdPayout,
       usdPremium,
       lossProb,
       expiration,
       address(this),
       internalId
     );
-    _increaseDebt(premium);
     return policyId;
+  }
+
+  function _resolvePolicy(Policy.PolicyData calldata policy, uint256 payout) internal {
+    payout = payout.wadMul(getEurUsdPrice());
+    TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
   }
 
   function resolvePolicy(
     Policy.PolicyData calldata policy,
     uint256 payout
   ) external onlyRole(RESOLVER_ROLE) {
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    payout = payout * eurUsdPrice;
-    TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
+    _resolvePolicy(policy, payout);
   }
 
   function resolvePolicyFullPayout(
     Policy.PolicyData calldata policy,
     bool customerWon
   ) external onlyRole(RESOLVER_ROLE) {
-    TrustfulRiskModule(address(policy.riskModule)).resolvePolicyFullPayout(policy, customerWon);
+    _resolvePolicy(policy, customerWon ? policy.payout : 0);
   }
 
   function onERC721Received(
@@ -312,8 +352,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     uint256 amount
   ) external override returns (bytes4) {
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    uint256 payoutEUR = amount / eurUsdPrice;
+    uint256 payoutEUR = amount.wadDiv(getEurUsdPrice());
     _decreaseDebt(payoutEUR);
     return IPolicyHolder.onPayoutReceived.selector;
   }
@@ -395,13 +434,13 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     emit CustomerChanged(customer_);
   }
 
-  function buffer() external view virtual returns (uint256) {
-    return _buffer;
+  function fxRiskBuffer() external view virtual returns (uint256) {
+    return _fxRiskBuffer;
   }
 
   function setBuffer(uint256 buffer_) external onlyRole(OWNER_ROLE) {
-    _buffer = buffer_;
-    emit BufferChanged(_buffer);
+    _fxRiskBuffer = buffer_;
+    emit FxRiskBufferChanged(_fxRiskBuffer);
   }
 
   /**
@@ -414,10 +453,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     require(_debt > 0, "EuroCashFlowLender: debt must be greater than 0");
     require(int256(amount) <= _debt, "EuroCashFlowLender: amount must be less than debt");
     _decreaseDebt(amount);
-    // Convierto el amount a USD y se lo mando a safeTransferFrom
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    uint256 usdAmount = amount * eurUsdPrice;
-
+    uint256 usdAmount = amount.wadMul(getEurUsdPrice());
     _currency().safeTransferFrom(_msgSender(), address(this), usdAmount);
   }
 
@@ -425,19 +461,15 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
    *
    * @param amount The amount (in  Euro) to pay
    */
-  function cashOutPayouts(uint256 amount) external {
+  function cashOutPayouts(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
     require(
       _debt < 0 && int256(amount) <= -_debt,
       "EuroCashFlowLender: amount must be less than debt"
     );
-    require(int256(amount) <= _debt, "EuroCashFlowLender: amount must be less than debt");
-
-    _decreaseDebt(amount);
-    // Convierto el amount a USD
-    uint256 eurUsdPrice = _getEurUsdPrice();
-    uint256 usdAmount = amount * eurUsdPrice;
-
-    _currency().safeTransferFrom(_msgSender(), address(this), usdAmount);
+    uint256 usdAmount = amount.wadMul(getEurUsdPrice());
+    require(_balance() >= usdAmount, "Not enough balance to pay the debt");
+    _increaseDebt(amount); // Sería increase, porque la deuda es negativa y pasa a ser menos negativa.
+    _currency().transfer(destination, usdAmount);
   }
 
   /**
