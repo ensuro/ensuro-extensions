@@ -39,6 +39,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
 
   uint8 internal constant WAD_DECIMALS = 18;
+  uint40 internal constant ORACLE_TOLERANCE = 3600;
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   TrustfulRiskModule internal immutable _riskModule;
@@ -52,6 +53,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   event CustomerChanged(address customer);
   event FxRiskBufferChanged(uint256 _newRiskBuffer);
   event Withdrawal(address destination, uint256 amount);
+  event CashOutPayout(address destination, uint256 amount, uint256 usdAmount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(TrustfulRiskModule riskModule_, AggregatorV3Interface assetOracle_) {
@@ -145,7 +147,8 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   }
 
   function getEurUsdPrice() public view returns (uint256) {
-    (, int256 price, , , ) = _assetOracle.latestRoundData();
+    (, int256 price, , uint256 updatedAt, ) = _assetOracle.latestRoundData();
+    require(updatedAt > block.timestamp - ORACLE_TOLERANCE, "Price is older than tolerable");
     return _scalePrice(SafeCast.toUint256(price), _assetOracle.decimals(), WAD_DECIMALS);
   }
 
@@ -377,6 +380,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
       destination != address(0),
       "EuroCashFlowLender: destination cannot be the zero address"
     );
+    require(_debt > 0, "EuroCashFlowLender: cannot withdraw when there is no debt");
     if (amount == type(uint256).max) {
       amount = _balance();
     } else {
@@ -470,6 +474,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     require(_balance() >= usdAmount, "Not enough balance to pay the debt");
     _increaseDebt(amount); // Sería increase, porque la deuda es negativa y pasa a ser menos negativa.
     _currency().transfer(destination, usdAmount);
+    emit CashOutPayout(destination, amount, usdAmount);
   }
 
   /**

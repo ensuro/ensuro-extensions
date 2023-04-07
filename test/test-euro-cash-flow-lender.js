@@ -10,10 +10,13 @@ const {
   addEToken,
   getTransactionEvent,
   accessControlMessage,
+  blockchainNow,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+const HOUR = 3600;
+const HALF_HOUR = HOUR / 2;
 
 describe("EuroCashFlowLender contract tests", function () {
   let _A, _P;
@@ -95,6 +98,11 @@ describe("EuroCashFlowLender contract tests", function () {
     return amount / 1e8;
   }
 
+  async function addRound(oracle, price, startedAt, updatedAt, answeredInRound) {
+    const now = await blockchainNow(owner);
+    return oracle._addRound(price, startedAt || now, updatedAt || now, answeredInRound || 0);
+  }
+
   it("EuroCashFlowLender init", async () => {
     const { rm, eurocfLender, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
@@ -131,12 +139,14 @@ describe("EuroCashFlowLender contract tests", function () {
     const quoteMessage = makeQuoteMessage(policyParams);
     const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
 
+    const now = await blockchainNow(owner);
+    await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
     await expect(newPolicy(eurocfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
       "ERC20: transfer amount exceeds balance" // No funds in eurocfLender
     );
-
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(0));
     await currency.connect(owner).transfer(eurocfLender.address, _A(500));
@@ -171,18 +181,40 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const quoteMessage = makeQuoteMessage(policyParams);
     const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+
+    const now = await blockchainNow(owner);
+    await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
     await currency.connect(owner).transfer(eurocfLender.address, _A(800));
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
     const receipt = await tx.wait();
-
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(800) - _A(200) * assetPrice);
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(200));
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     await expect(eurocfLender.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(800))).to.be.revertedWith(
       accessControlMessage(anon.address, null, "RESOLVER_ROLE")
+    );
+  });
+
+  it("Address without OWNER_ROLE can't withdraw", async () => {
+    const { rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+    const quoteMessage = makeQuoteMessage(policyParams);
+    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+
+    const now = await blockchainNow(owner);
+    await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
+    await currency.connect(owner).transfer(eurocfLender.address, _A(800));
+    await newPolicy(eurocfLender, creator, policyParams, cust, signature);
+
+    await expect(eurocfLender.connect(anon).withdraw(_A(800), owner.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "OWNER_ROLE")
     );
   });
 });

@@ -43,7 +43,7 @@ contract AggregatorV3Mock is AggregatorV3Interface {
   {
     RoundData memory round = _rounds[_roundId];
 
-    return (round.roundId, 108919000, round.startedAt, round.updatedAt, round.answeredInRound);
+    return (round.roundId, round.answer, round.startedAt, round.updatedAt, round.answeredInRound);
   }
 
   function latestRoundData()
@@ -68,7 +68,6 @@ contract AggregatorV3Mock is AggregatorV3Interface {
   ) public {
     require(msg.sender == owner, "Method meant for testing only");
     _latestRound += 1;
-    answer = 108919000;
     _rounds[_latestRound] = RoundData(_latestRound, answer, startedAt, updatedAt, answeredInRound);
   }
 }
