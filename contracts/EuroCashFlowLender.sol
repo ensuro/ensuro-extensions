@@ -45,12 +45,10 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   TrustfulRiskModule internal immutable _riskModule;
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   AggregatorV3Interface internal immutable _assetOracle;
-  address internal _customer;
   uint256 internal _fxRiskBuffer; // in wad (18 decimals)
   int256 internal _debt; // in Euro
 
   event DebtChanged(int256 currentDebt);
-  event CustomerChanged(address customer);
   event FxRiskBufferChanged(uint256 _newRiskBuffer);
   event Withdrawal(address destination, uint256 amount);
   event CashOutPayout(address destination, uint256 amount, uint256 usdAmount);
@@ -72,31 +70,22 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
 
   /**
    * @dev Initializes the EuroCashFlowLender
-   * @param customer_ Address of the customer who will receive the payouts when debt = 0
    */
-  function initialize(address customer_, uint256 fxRiskBuffer_) public virtual initializer {
-    __EuroCashFlowLender_init(customer_, fxRiskBuffer_);
+  function initialize(uint256 fxRiskBuffer_) public virtual initializer {
+    __EuroCashFlowLender_init(fxRiskBuffer_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __EuroCashFlowLender_init(
-    address customer_,
-    uint256 fxRiskBuffer_
-  ) internal onlyInitializing {
+  function __EuroCashFlowLender_init(uint256 fxRiskBuffer_) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
-    __EuroCashFlowLender_init_unchained(customer_, fxRiskBuffer_);
+    __EuroCashFlowLender_init_unchained(fxRiskBuffer_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __EuroCashFlowLender_init_unchained(
-    address customer_,
-    uint256 fxRiskBuffer_
-  ) internal onlyInitializing {
+  function __EuroCashFlowLender_init_unchained(uint256 fxRiskBuffer_) internal onlyInitializing {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-    _customer = customer_;
     _fxRiskBuffer = fxRiskBuffer_;
-    emit CustomerChanged(customer_);
     // Infinite approval to the PolicyPool to pay the premiums
     _currency().approve(address(_pool()), type(uint256).max);
   }
@@ -307,7 +296,6 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   }
 
   function _resolvePolicy(Policy.PolicyData calldata policy, uint256 payout) internal {
-    payout = payout.wadMul(getEurUsdPrice());
     TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
   }
 
@@ -315,6 +303,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     Policy.PolicyData calldata policy,
     uint256 payout
   ) external onlyRole(RESOLVER_ROLE) {
+    payout = payout.wadMul(getEurUsdPrice());
     _resolvePolicy(policy, payout);
   }
 
@@ -402,13 +391,6 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   }
 
   /**
-   * @dev Returns the address of the `customer`, the one that will receive the payouts when debt was repaid
-   */
-  function customer() external view returns (address) {
-    return _customer;
-  }
-
-  /**
    * @dev Returns the address of the wrapped riskModule
    */
   function riskModule() public view virtual returns (TrustfulRiskModule) {
@@ -420,22 +402,6 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
    */
   function assetOracle() external view returns (AggregatorV3Interface) {
     return _assetOracle;
-  }
-
-  /**
-   * @dev Sets the address of the `customer`, the one that will receive the payouts when debt was repaid
-   *
-   * Requirements:
-   * - Caller has OWNER_ROLE
-   *
-   * Emits:
-   * - CustomerChanged
-   *
-   * @param customer_ The new address of the customer
-   */
-  function setCustomer(address customer_) external onlyRole(OWNER_ROLE) {
-    _customer = customer_;
-    emit CustomerChanged(customer_);
   }
 
   function fxRiskBuffer() external view virtual returns (uint256) {
