@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^0.6.1",
-    "@ensuro/core": "^2.1.0-beta2",
+    "@ensuro/core": "^2.1.0-beta5",
     "@openzeppelin/contracts": "~4.7.3",
     "@openzeppelin/contracts-upgradeable": "~4.7.3",
     "@quadrata/contracts": "^0.4.1",

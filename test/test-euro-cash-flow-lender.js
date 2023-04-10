@@ -1,5 +1,4 @@
 const { expect } = require("chai");
-const _ = require("lodash");
 const {
   initCurrency,
   deployPool,
@@ -10,9 +9,9 @@ const {
   addEToken,
   getTransactionEvent,
   accessControlMessage,
-  blockchainNow,
+  makeSignedQuote,
 } = require("@ensuro/core/js/test-utils");
-const { newPolicy, defaultPolicyParams } = require("./test-utils");
+const { blockchainNow, newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const HOUR = 3600;
@@ -88,13 +87,6 @@ describe("EuroCashFlowLender contract tests", function () {
     return { etk, premiumsAccount, rm, pool, accessManager, currency, eurocfLender, assetOracle };
   }
 
-  function makeQuoteMessage({ rmAddress, payout, premium, lossProb, expiration, policyData, validUntil }) {
-    return ethers.utils.solidityPack(
-      ["address", "uint256", "uint256", "uint256", "uint40", "bytes32", "uint40"],
-      [rmAddress, payout, premium, lossProb, expiration, policyData, validUntil]
-    );
-  }
-
   function toCurrencyDecimals(amount) {
     return amount / 1e8;
   }
@@ -152,8 +144,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Creates a policy paid by the EuroCashFlowLender", async () => {
     const { pool, rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(500), premium: _A(80) });
-    const quoteMessage = makeQuoteMessage(policyParams);
-    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -188,8 +179,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Rejects if called by unauthorized user", async () => {
     const { rm, eurocfLender } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
-    const quoteMessage = makeQuoteMessage(policyParams);
-    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     await expect(newPolicy(eurocfLender, anon, policyParams, cust, signature)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE")
@@ -199,8 +189,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Rejects if resolved by unauthorized user", async () => {
     const { rm, currency, pool, eurocfLender, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    const quoteMessage = makeQuoteMessage(policyParams);
-    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -233,8 +222,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Address without OWNER_ROLE can't withdraw", async () => {
     const { rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    const quoteMessage = makeQuoteMessage(policyParams);
-    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -254,9 +242,8 @@ describe("EuroCashFlowLender contract tests", function () {
 
     // Setup the risk module
     const TrustfulRiskModule = await hre.ethers.getContractFactory("TrustfulRiskModule");
-    const newImpl = await addRiskModule(pool, premiumsAccount, TrustfulRiskModule, {
-      ensuroFee: 0.05,
-    });
+    const newImpl = await TrustfulRiskModule.deploy(pool.address, premiumsAccount.address);
+
     await expect(eurocfLender.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "GUARDIAN_ROLE")
     );
@@ -267,8 +254,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Customer cashout", async () => {
     const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    let quoteMessage = makeQuoteMessage(policyParams);
-    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    let signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -292,8 +278,7 @@ describe("EuroCashFlowLender contract tests", function () {
       payout: _A(500),
       policyData: "0x2cbef6744ebcff4969e06c41631a1d0aa71366c4fd997e9ff5a59b8efa9b9032",
     });
-    quoteMessage = makeQuoteMessage(policyParams);
-    signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    signature = await makeSignedQuote(signer, policyParams);
 
     await expect(newPolicy(eurocfLender, anon, policyParams, cust, signature, "newPolicyFull")).to.be.revertedWith(
       accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE")
@@ -332,8 +317,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    let quoteMessage = makeQuoteMessage(policyParams);
-    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -355,8 +339,7 @@ describe("EuroCashFlowLender contract tests", function () {
   it("EuroCashFlowLender old asset price", async () => {
     const { rm, eurocfLender, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(500), premium: _A(80) });
-    const quoteMessage = makeQuoteMessage(policyParams);
-    const signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - 3 * HOUR);
@@ -372,8 +355,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    let quoteMessage = makeQuoteMessage(policyParams);
-    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+    const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await blockchainNow(owner);
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
@@ -412,5 +394,34 @@ describe("EuroCashFlowLender contract tests", function () {
       eurocfLender,
       "Withdrawal"
     );
+  });
+
+  it("Resolve policy with changes in asset price", async () => {
+    const { pool, rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(100), premium: _A(20) });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    const now = await blockchainNow(owner);
+    await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
+    await currency.connect(owner).transfer(eurocfLender.address, _A(500));
+    const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(500) - _A(20) * assetPrice);
+    expect(await eurocfLender.currentDebt()).to.be.equal(_A(20));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(eurocfLender.address);
+
+    // Change asset price
+    await addRound(assetOracle, 120000000, now - HOUR * 2, now - HALF_HOUR);
+    [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
+    await eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(100));
+    expect(await eurocfLender.currentDebt()).to.be.equal(_A(20) - _A(100)); // 20 previous debt - 100 payout
   });
 });

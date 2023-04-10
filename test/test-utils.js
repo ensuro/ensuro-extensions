@@ -42,3 +42,9 @@ const newPolicy = function (rm, sender, policyParams, onBehalfOf, signature, met
 };
 
 exports.newPolicy = newPolicy;
+
+async function blockchainNow(owner) {
+  return (await owner.provider.getBlock("latest")).timestamp;
+}
+
+exports.blockchainNow = blockchainNow;
