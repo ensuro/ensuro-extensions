@@ -363,7 +363,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
       destination != address(0),
       "EuroCashFlowLender: destination cannot be the zero address"
     );
-    require(_debt >= 0, "EuroCashFlowLender: cannot withdraw when there is no debt");
+    require(_debt >= 0, "EuroCashFlowLender: cannot withdraw if there's debt with the customer");
     if (amount == type(uint256).max) {
       amount = _balance();
     } else {

@@ -76,7 +76,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), eurocfLender.address);
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), eurocfLender.address);
-    await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
     await eurocfLender.grantRole(await eurocfLender.OWNER_ROLE(), owner.address);
     await eurocfLender.grantRole(await eurocfLender.PRICER_ROLE(), signer.address);
     await eurocfLender.grantRole(await eurocfLender.RESOLVER_ROLE(), resolver.address);
@@ -172,7 +171,7 @@ describe("EuroCashFlowLender contract tests", function () {
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(80) - _A(400)); // 80 previous debt - 400 payout
 
     await expect(eurocfLender.connect(owner).withdraw(_A(100), cust.address)).to.be.revertedWith(
-      "EuroCashFlowLender: cannot withdraw when there is no debt"
+      "EuroCashFlowLender: cannot withdraw if there's debt with the customer"
     );
   });
 
@@ -413,6 +412,10 @@ describe("EuroCashFlowLender contract tests", function () {
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+
+    expect(newPolicyEvt.args.policy.payout).to.be.equal(_A(100 * 1.1 * 1.05));
+
+    const maxPayout = newPolicyEvt.args.policy.payout;
     const policyId = newPolicyEvt.args[1].id;
     expect(await pool.ownerOf(policyId)).to.be.equal(eurocfLender.address);
 
@@ -421,7 +424,12 @@ describe("EuroCashFlowLender contract tests", function () {
     [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
 
-    await eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(100));
+    // Two DebtChanged events triggered
+    await expect(eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(100)))
+      .to.emit(eurocfLender, "DebtChanged")
+      .withArgs(_A(20).sub(maxPayout/1.2))
+      .to.emit(eurocfLender, "DebtChanged")
+      .withArgs(_A(20 - 100));
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20) - _A(100)); // 20 previous debt - 100 payout
   });
 });
