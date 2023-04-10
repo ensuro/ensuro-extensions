@@ -245,6 +245,21 @@ describe("EuroCashFlowLender contract tests", function () {
     );
   });
 
+  it("Only GUARDIAN_ROLE can upgrade", async () => {
+    const { pool, eurocfLender, premiumsAccount } = await helpers.loadFixture(deployPoolFixture);
+
+    // Setup the risk module
+    const TrustfulRiskModule = await hre.ethers.getContractFactory("TrustfulRiskModule");
+    const newImpl = await addRiskModule(pool, premiumsAccount, TrustfulRiskModule, {
+      ensuroFee: 0.05,
+    });
+    await expect(eurocfLender.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "GUARDIAN_ROLE")
+    );
+
+    await eurocfLender.connect(guardian).upgradeTo(newImpl.address);
+  });
+
   it("Customer cashout", async () => {
     const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
@@ -348,6 +363,56 @@ describe("EuroCashFlowLender contract tests", function () {
 
     await expect(newPolicy(eurocfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
       "Price is older than tolerable"
+    );
+  });
+
+  it("Test only the owner can withdraw the funds", async () => {
+    const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+
+    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+    let quoteMessage = makeQuoteMessage(policyParams);
+    let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+
+    const now = await blockchainNow(owner);
+    await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
+    await expect(eurocfLender.connect(owner).withdraw(_A(100), cust.address)).to.be.revertedWith(
+      "EuroCashFlowLender: cannot withdraw when there is no debt"
+    );
+
+    await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
+    let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    expect(await eurocfLender.currentDebt()).to.be.equal(_A(200));
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+
+    expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162")); // 1000 - (200 * 1.08919) = 782.162
+
+    // Can't withdraw to zero address
+    await expect(eurocfLender.connect(owner).withdraw(_A(200), ethers.constants.AddressZero)).to.be.revertedWith(
+      "EuroCashFlowLender: destination cannot be the zero address"
+    );
+    // Try changing the customer with anon
+    await expect(eurocfLender.connect(anon).withdraw(_A(200), anon.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "OWNER_ROLE")
+    );
+    await expect(eurocfLender.connect(owner).withdraw(_A(300), anon.address))
+      .to.emit(eurocfLender, "Withdrawal")
+      .withArgs(anon.address, _A(300)); //  300 * 1.08919 = 326.757
+    expect(await currency.balanceOf(anon.address)).to.be.equal(_A(300));
+
+    expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162") - _A(300));
+
+    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address))
+      .to.emit(eurocfLender, "Withdrawal")
+      .withArgs(anon.address, _A("782.162") - _A(300));
+    expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(0));
+    // When no more funds, withdraw doesn't fails, just doesn't do anything
+    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).not.to.emit(
+      eurocfLender,
+      "Withdrawal"
     );
   });
 });
