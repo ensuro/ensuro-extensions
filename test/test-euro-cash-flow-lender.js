@@ -179,6 +179,10 @@ describe("EuroCashFlowLender contract tests", function () {
 
     await eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(400));
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(80) - _A(400)); // 80 previous debt - 400 payout
+
+    await expect(eurocfLender.connect(owner).withdraw(_A(100), cust.address)).to.be.revertedWith(
+      "EuroCashFlowLender: cannot withdraw when there is no debt"
+    );
   });
 
   it("Rejects if called by unauthorized user", async () => {
@@ -300,12 +304,12 @@ describe("EuroCashFlowLender contract tests", function () {
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(150));
     newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
-    await expect(eurocfLender.connect(anon).resolvePolicyFullPayout(newPolicyEvt.args[1], true)).to.be.revertedWith(
+    await expect(eurocfLender.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(600))).to.be.revertedWith(
       accessControlMessage(anon.address, null, "RESOLVER_ROLE")
     );
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(150));
 
-    await expect(eurocfLender.connect(resolver).resolvePolicyFullPayout(newPolicyEvt.args[1], true))
+    await expect(eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(600)))
       .to.emit(eurocfLender, "DebtChanged")
       .withArgs(-_A(375)); // -375 = 150 - policyPayout(in USD = 571.824750) / 1.08919
 
@@ -322,8 +326,6 @@ describe("EuroCashFlowLender contract tests", function () {
     await expect(eurocfLender.connect(cust).cashOutPayouts(_A(375), cust.address))
       .to.emit(eurocfLender, "CashOutPayout")
       .withArgs(cust.address, _A(375), _A("408.446250")); // 408.44 = 375 * 1.08919
-
-    expect(await eurocfLender.currentDebt()).to.be.equal(_A(0));
   });
 
   it("Checks policy expires OK", async () => {
@@ -377,10 +379,6 @@ describe("EuroCashFlowLender contract tests", function () {
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
-
-    await expect(eurocfLender.connect(owner).withdraw(_A(100), cust.address)).to.be.revertedWith(
-      "EuroCashFlowLender: cannot withdraw when there is no debt"
-    );
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);

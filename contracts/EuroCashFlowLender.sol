@@ -49,9 +49,9 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
   int256 internal _debt; // in Euro
 
   event DebtChanged(int256 currentDebt);
-  event FxRiskBufferChanged(uint256 _newRiskBuffer);
-  event Withdrawal(address destination, uint256 amount);
-  event CashOutPayout(address destination, uint256 amount, uint256 usdAmount);
+  event FxRiskBufferChanged(uint256 newRiskBuffer);
+  event Withdrawal(address indexed destination, uint256 amount);
+  event CashOutPayout(address indexed destination, uint256 amount, uint256 usdAmount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(TrustfulRiskModule riskModule_, AggregatorV3Interface assetOracle_) {
@@ -295,23 +295,17 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
     return policyId;
   }
 
-  function _resolvePolicy(Policy.PolicyData calldata policy, uint256 payout) internal {
-    TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
-  }
-
   function resolvePolicy(
     Policy.PolicyData calldata policy,
-    uint256 payout
+    uint256 payoutInEur
   ) external onlyRole(RESOLVER_ROLE) {
-    payout = payout.wadMul(getEurUsdPrice());
-    _resolvePolicy(policy, payout);
-  }
-
-  function resolvePolicyFullPayout(
-    Policy.PolicyData calldata policy,
-    bool customerWon
-  ) external onlyRole(RESOLVER_ROLE) {
-    _resolvePolicy(policy, customerWon ? policy.payout : 0);
+    uint256 payout = payoutInEur.wadMul(getEurUsdPrice());
+    if (payout <= policy.payout) {
+      TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
+    } else {
+      TrustfulRiskModule(address(policy.riskModule)).resolvePolicy(policy, policy.payout);
+      _decreaseDebt((payout - policy.payout).wadDiv(getEurUsdPrice()));
+    }
   }
 
   function onERC721Received(
@@ -369,7 +363,7 @@ contract EuroCashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolic
       destination != address(0),
       "EuroCashFlowLender: destination cannot be the zero address"
     );
-    require(_debt > 0, "EuroCashFlowLender: cannot withdraw when there is no debt");
+    require(_debt >= 0, "EuroCashFlowLender: cannot withdraw when there is no debt");
     if (amount == type(uint256).max) {
       amount = _balance();
     } else {
