@@ -3,7 +3,7 @@ const { _W, amountFunction } = require("@ensuro/core/js/test-utils");
 
 const _A = amountFunction(6);
 
-const defaultPolicyParams = async function ({
+async function defaultPolicyParams({
   rmAddress,
   payout,
   premium,
@@ -24,9 +24,7 @@ const defaultPolicyParams = async function ({
   };
 };
 
-exports.defaultPolicyParams = defaultPolicyParams;
-
-const newPolicy = function (rm, sender, policyParams, onBehalfOf, signature, method) {
+function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
   if (sender !== undefined) rm = rm.connect(sender);
   return rm[method || "newPolicy"](
     policyParams.payout,
@@ -41,10 +39,7 @@ const newPolicy = function (rm, sender, policyParams, onBehalfOf, signature, met
   );
 };
 
-exports.newPolicy = newPolicy;
-
-async function blockchainNow(owner) {
-  return (await owner.provider.getBlock("latest")).timestamp;
+module.exports = {
+  newPolicy,
+  defaultPolicyParams,
 }
-
-exports.blockchainNow = blockchainNow;

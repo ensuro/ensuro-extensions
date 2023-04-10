@@ -11,7 +11,7 @@ const {
   accessControlMessage,
   makeSignedQuote,
 } = require("@ensuro/core/js/test-utils");
-const { blockchainNow, newPolicy, defaultPolicyParams } = require("./test-utils");
+const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const HOUR = 3600;
@@ -91,7 +91,7 @@ describe("EuroCashFlowLender contract tests", function () {
   }
 
   async function addRound(oracle, price, startedAt, updatedAt, answeredInRound) {
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     return oracle._addRound(price, startedAt || now, updatedAt || now, answeredInRound || 0);
   }
 
@@ -145,7 +145,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(500), premium: _A(80) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -190,7 +190,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -223,7 +223,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -255,7 +255,7 @@ describe("EuroCashFlowLender contract tests", function () {
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     let signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -318,7 +318,7 @@ describe("EuroCashFlowLender contract tests", function () {
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -340,7 +340,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(500), premium: _A(80) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - 3 * HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -356,7 +356,7 @@ describe("EuroCashFlowLender contract tests", function () {
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
@@ -400,7 +400,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(100), premium: _A(20) });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    const now = await blockchainNow(owner);
+    const now = await helpers.time.latest();
     await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
     assetPrice = toCurrencyDecimals(assetPrice);
