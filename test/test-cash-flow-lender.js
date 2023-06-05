@@ -139,6 +139,18 @@ describe("CashFlowLender contract tests", function () {
     { name: "MultiRMCashFlowLender - RM Changed", fixture: deployPoolAndCFLFixtureUpgradeToMultiRMChangeRM },
   ];
 
+  function makeBatchParams(policyParams, signatures) {
+    const payout = policyParams.map((pp) => pp.payout);
+    const premium = policyParams.map((pp) => pp.premium);
+    const lossProb = policyParams.map((pp) => pp.lossProb);
+    const expiration = policyParams.map((pp) => pp.expiration);
+    const policyData = policyParams.map((pp) => pp.policyData);
+    const quoteSignatureR = signatures.map((s) => s.r);
+    const quoteSignatureVS = signatures.map((s) => s._vs);
+    const validUntil = policyParams.map((pp) => pp.validUntil);
+    return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];
+  }
+
   variants.map((variant) => {
     const _tn = (testName) => `${testName} - ${variant.name}`;
 
@@ -164,6 +176,83 @@ describe("CashFlowLender contract tests", function () {
       expect(await cfLender.currentDebt()).to.be.equal(_A(0));
       expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(1000)); // 200 debt repaid
       expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500 + 600)); // 500 initial + 600 (800-200)
+    });
+
+    it(_tn("Creates policies in batch paid by the CashFlowLender"), async () => {
+      const { rm, pool, currency, cfLender } = await helpers.loadFixture(variant.fixture);
+      const policyParams = [
+        await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200), payout: _A(900) }),
+        await defaultPolicyParams({
+          rmAddress: rm.address,
+          premium: _A(300),
+          payout: _A(950),
+          policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3236",
+        }),
+        await defaultPolicyParams({
+          rmAddress: rm.address,
+          premium: _A(100),
+          payout: _A(800),
+          policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3237",
+        }),
+      ];
+      const quoteMessages = policyParams.map(makeQuoteMessage);
+      const signatures = await Promise.all(
+        quoteMessages.map(async (qm) =>
+          ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(qm)))
+        )
+      );
+
+      await expect(
+        cfLender.connect(anon).newPoliciesInBatch(...makeBatchParams(policyParams, signatures))
+      ).to.be.revertedWith(accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE"));
+
+      await expect(
+        cfLender.connect(creator).newPoliciesInBatch(...makeBatchParams(policyParams, signatures))
+      ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(0));
+
+      // Transfer some money, not enough to cover all the premiums
+      await currency.connect(owner).transfer(cfLender.address, _A(300));
+
+      await expect(
+        cfLender.connect(creator).newPoliciesInBatch(...makeBatchParams(policyParams, signatures))
+      ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(300));
+
+      await currency.connect(owner).transfer(cfLender.address, _A(500));
+
+      const tx = await cfLender.connect(creator).newPoliciesInBatch(...makeBatchParams(policyParams, signatures));
+      const receipt = await tx.wait();
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(200)); // 600 spent on the premium
+      expect(await cfLender.currentDebt()).to.be.equal(_A(600));
+      const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      const policyId = newPolicyEvt.args[1].id;
+      expect(await pool.ownerOf(policyId)).to.be.equal(cfLender.address);
+
+      // for each log in the transaction receipt
+      const newPolicyEvts = [];
+      for (const log of receipt.logs) {
+        let parsedLog;
+        try {
+          parsedLog = pool.interface.parseLog(log);
+        } catch (error) {
+          continue;
+        }
+        if (parsedLog.name == "NewPolicy") {
+          newPolicyEvts.push(parsedLog);
+        }
+      }
+
+      expect(newPolicyEvts.length).to.be.equal(3);
+      expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(cfLender.address);
+      expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(cfLender.address);
+
+      await cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+      expect(await cfLender.currentDebt()).to.be.equal(_A(0));
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(200 + 600)); // 600 debt repaid
+      expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500 + 800 - 600)); // 500 initial + 600 (800-600)
     });
 
     ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) => {
