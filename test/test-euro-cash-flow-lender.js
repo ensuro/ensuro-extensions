@@ -427,7 +427,7 @@ describe("EuroCashFlowLender contract tests", function () {
     // Two DebtChanged events triggered
     await expect(eurocfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(100)))
       .to.emit(eurocfLender, "DebtChanged")
-      .withArgs(_A(20).sub(maxPayout/1.2))
+      .withArgs(_A(20).sub(maxPayout / 1.2))
       .to.emit(eurocfLender, "DebtChanged")
       .withArgs(_A(20 - 100));
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20) - _A(100)); // 20 previous debt - 100 payout

@@ -3,15 +3,7 @@ const { _W, amountFunction } = require("@ensuro/core/js/test-utils");
 
 const _A = amountFunction(6);
 
-async function defaultPolicyParams({
-  rmAddress,
-  payout,
-  premium,
-  lossProb,
-  expiration,
-  policyData,
-  validUntil,
-}) {
+async function defaultPolicyParams({ rmAddress, payout, premium, lossProb, expiration, policyData, validUntil }) {
   const now = await helpers.time.latest();
   return {
     rmAddress,
@@ -22,7 +14,7 @@ async function defaultPolicyParams({
     policyData: policyData || "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3235",
     validUntil: validUntil || now + 3600 * 24 * 30,
   };
-};
+}
 
 function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
   if (sender !== undefined) rm = rm.connect(sender);
@@ -37,9 +29,9 @@ function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
     signature._vs,
     policyParams.validUntil
   );
-};
+}
 
 module.exports = {
   newPolicy,
   defaultPolicyParams,
-}
+};

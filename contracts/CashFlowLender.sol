@@ -205,6 +205,44 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     return policyId;
   }
 
+  /**
+   * @dev Creates several policies paid by this contract and increases the debt. See {SignedQuoteRiskModule.newPolicy}
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPoliciesInBatch(
+    uint256[] memory payout,
+    uint256[] memory premium,
+    uint256[] memory lossProb,
+    uint40[] memory expiration,
+    bytes32[] memory policyData,
+    bytes32[] memory quoteSignatureR,
+    bytes32[] memory quoteSignatureVS,
+    uint40[] memory quoteValidUntil
+  ) external onlyRole(POLICY_CREATOR_ROLE) {
+    uint256 balanceBefore = _balance();
+    SignedQuoteRiskModule rm = riskModule();
+
+    for (uint256 i = 0; i < payout.length; i++) {
+      rm.newPolicy(
+        payout[i],
+        premium[i],
+        lossProb[i],
+        expiration[i],
+        address(this),
+        policyData[i],
+        quoteSignatureR[i],
+        quoteSignatureVS[i],
+        quoteValidUntil[i]
+      );
+    }
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+  }
+
   function _repayDebtTransferRest(uint256 payout) internal {
     if (payout <= _debt) {
       _decreaseDebt(payout);
