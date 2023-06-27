@@ -35,8 +35,9 @@ contract ERC4626CashFlowLender is
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   SignedQuoteRiskModule internal immutable _riskModule;
-  int256 internal _debt;
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IERC20Metadata private immutable _asset;
+  int256 internal _debt;
 
   event DebtChanged(int256 currentDebt);
 
@@ -46,6 +47,7 @@ contract ERC4626CashFlowLender is
       address(riskModule_) != address(0),
       "ERC4626CashFlowLender: riskModule_ cannot be zero address"
     );
+    require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
     _disableInitializers();
     _riskModule = riskModule_;
     _asset = asset_;
@@ -105,6 +107,10 @@ contract ERC4626CashFlowLender is
    */
   function currentDebt() external view returns (int256) {
     return _debt;
+  }
+
+  function asset() public view virtual override returns (address) {
+    return address(_asset);
   }
 
   function totalAssets() public view virtual override returns (uint256) {
