@@ -70,7 +70,6 @@ describe("CashFlowLender contract tests", function () {
     const CashFlowLender = await hre.ethers.getContractFactory(contractClass);
     const cfLender = await hre.upgrades.deployProxy(CashFlowLender, [cust.address], {
       kind: "uups",
-      unsafeAllow: ["delegatecall"],
       constructorArgs: [rm.address],
     });
     creationIsOpen = creationIsOpen === undefined ? true : creationIsOpen;

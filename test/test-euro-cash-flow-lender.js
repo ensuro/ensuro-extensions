@@ -70,7 +70,6 @@ describe("EuroCashFlowLender contract tests", function () {
     const EuroCashFlowLender = await hre.ethers.getContractFactory("EuroCashFlowLender");
     const eurocfLender = await hre.upgrades.deployProxy(EuroCashFlowLender, [_W("1.05")], {
       kind: "uups",
-      unsafeAllow: ["delegatecall"],
       constructorArgs: [rm.address, assetOracle.address],
     });
 
@@ -126,7 +125,6 @@ describe("EuroCashFlowLender contract tests", function () {
     await expect(
       hre.upgrades.deployProxy(EuroCashFlowLender, [cust.address, _W("1.05")], {
         kind: "uups",
-        unsafeAllow: ["delegatecall"],
         constructorArgs: [hre.ethers.constants.AddressZero, assetOracle.address],
       })
     ).to.be.revertedWith("EuroCashFlowLender: riskModule_ cannot be zero address");
@@ -134,7 +132,6 @@ describe("EuroCashFlowLender contract tests", function () {
     await expect(
       hre.upgrades.deployProxy(EuroCashFlowLender, [cust.address, _W("1.05")], {
         kind: "uups",
-        unsafeAllow: ["delegatecall"],
         constructorArgs: [rm.address, hre.ethers.constants.AddressZero],
       })
     ).to.be.revertedWith("EuroCashFlowLender: assetOracle_ cannot be zero address");
