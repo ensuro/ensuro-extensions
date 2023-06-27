@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.16;
 
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
-import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/interfaces/IERC20Upgradeable.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
+import {Policy} from "@ensuro/core/contracts/Policy.sol";
+import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
+import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
 
 /**
  * @title CashFlow Lender Module
@@ -16,19 +19,35 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable {
+contract ERC4626CashFlowLender is
+  AccessControlUpgradeable,
+  UUPSUpgradeable,
+  ERC4626Upgradeable,
+  IPolicyHolder
+{
+  using SafeERC20 for IERC20Metadata;
+
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
   bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
+  bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
+  bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+  SignedQuoteRiskModule internal immutable _riskModule;
   int256 internal _debt;
   IERC20Metadata private immutable _asset;
 
   event DebtChanged(int256 currentDebt);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
-  constructor(IERC20Metadata asset_) {
+  constructor(SignedQuoteRiskModule riskModule_, IERC20Metadata asset_) {
+    require(
+      address(riskModule_) != address(0),
+      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
+    );
     _disableInitializers();
+    _riskModule = riskModule_;
     _asset = asset_;
   }
 
@@ -43,6 +62,24 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   function __ERC4626CashFlowLender_init() internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
+    _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    // Infinite approval to the PolicyPool to pay the premiums
+    _currency().approve(address(_pool()), type(uint256).max);
+  }
+
+  // solhint-disable-next-line no-empty-blocks
+  function _authorizeUpgrade(address newImpl) internal view override onlyRole(GUARDIAN_ROLE) {}
+
+  function _pool() internal view returns (IPolicyPool) {
+    return _riskModule.policyPool();
+  }
+
+  function _currency() internal view returns (IERC20Metadata) {
+    return _pool().currency();
+  }
+
+  function _balance() internal view returns (uint256) {
+    return _currency().balanceOf(address(this));
   }
 
   /**
@@ -70,37 +107,199 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     return _debt;
   }
 
+  function totalAssets() public view virtual override returns (uint256) {
+    return _asset.balanceOf(address(this));
+  }
+
+  /**
+   * @dev Returns the address of the wrapped riskModule
+   */
+  function riskModule() public view virtual returns (SignedQuoteRiskModule) {
+    return _riskModule;
+  }
+
   /**
    * @dev Deposit/mint common workflow.
    */
-  function _deposit(
-    address caller,
-    address receiver,
+  function deposit(
     uint256 assets,
-    uint256 shares
-  ) internal virtual override onlyRole(LP_ROLE) {
+    address receiver
+  ) public override onlyRole(LP_ROLE) returns (uint256) {
     _increaseDebt(assets);
-    super._deposit(caller, receiver, assets, shares);
+    return super.deposit(assets, receiver);
   }
 
   /**
    * @dev Withdraw/burn common workflow.
    */
-  function _withdraw(
-    address caller,
-    address receiver,
-    address owner,
+  function withdraw(
     uint256 assets,
-    uint256 shares
-  ) internal virtual override onlyRole(CUSTOMER_ROLE) {
+    address receiver,
+    address owner
+  ) public override onlyRole(CUSTOMER_ROLE) returns (uint256) {
     require(_debt >= 0, "ERC4626CashFlowLender: cannot withdraw if there's debt with the customer");
     uint256 balance = IERC20Metadata(asset()).balanceOf(address(this));
     require(balance >= assets, "ERC4626CashFlowLender: not enough assets to withdraw");
 
     _decreaseDebt(assets);
-    super._withdraw(caller, receiver, owner, assets, shares);
+    return super.withdraw(assets, receiver, owner);
   }
 
-  // solhint-disable-next-line no-empty-blocks
-  function _authorizeUpgrade(address newImpl) internal view override onlyRole(GUARDIAN_ROLE) {}
+  /**
+   * @dev Creates a new policy paid by this contract and increases the debt. See {SignedQuoteRiskModule.newPolicyFull}
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPolicyFull(
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    address, // onBehalfOf is ignored
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) external onlyRole(POLICY_CREATOR_ROLE) returns (Policy.PolicyData memory createdPolicy) {
+    uint256 balanceBefore = _balance();
+    createdPolicy = riskModule().newPolicyFull(
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      address(this),
+      policyData,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+    return createdPolicy;
+  }
+
+  /**
+   * @dev Creates a new policy paid by this contract and increases the debt. See {SignedQuoteRiskModule.newPolicy}
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPolicy(
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    address, // onBehalfOf is ignored
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
+    uint256 balanceBefore = _balance();
+    policyId = riskModule().newPolicy(
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      address(this),
+      policyData,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+    return policyId;
+  }
+
+  /**
+   * @dev Creates a new policy paid by this contract and increases the debt. See
+   * {SignedQuoteRiskModule.newPolicyPaidByHolder}
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPolicyPaidByHolder(
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    address, // onBehalfOf is ignored
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
+    uint256 balanceBefore = _balance();
+    /**
+     * Calls newPolicy instead of newPolicyPaidByHolder because customer == msg.sender. We just keep this method
+     * to work as a no-code change replacement of the SignedQuoteRiskModule
+     */
+    policyId = riskModule().newPolicy(
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      address(this),
+      policyData,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+    return policyId;
+  }
+
+  function resolvePolicy(
+    Policy.PolicyData calldata policy,
+    uint256 payout
+  ) external onlyRole(RESOLVER_ROLE) {
+    SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
+  }
+
+  function resolvePolicyFullPayout(
+    Policy.PolicyData calldata policy,
+    bool customerWon
+  ) external onlyRole(RESOLVER_ROLE) {
+    SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicyFullPayout(policy, customerWon);
+  }
+
+  function onERC721Received(
+    address,
+    address,
+    uint256,
+    bytes calldata
+  ) external pure override returns (bytes4) {
+    return IERC721Receiver.onERC721Received.selector;
+  }
+
+  function onPolicyExpired(address, address, uint256) external pure override returns (bytes4) {
+    return IPolicyHolder.onPolicyExpired.selector;
+  }
+
+  function onPayoutReceived(
+    address,
+    address,
+    uint256,
+    uint256 amount
+  ) external override returns (bytes4) {
+    require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
+    _decreaseDebt(amount);
+    return IPolicyHolder.onPayoutReceived.selector;
+  }
+
+  /**
+   * @dev This empty reserved space is put in place to allow future versions to add new
+   * variables without shifting down storage in the inheritance chain.
+   * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+   */
+  uint256[48] private __gap;
 }
