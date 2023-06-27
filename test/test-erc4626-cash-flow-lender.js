@@ -130,6 +130,10 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const receipt = await tx.wait();
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+    await expect(erc4626cfl.connect(cust).withdraw(_A(1000), anon.address, cust.address)).to.be.revertedWith(
+      "ERC4626CashFlowLender: not enough assets to withdraw"
+    );
+
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
     expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);

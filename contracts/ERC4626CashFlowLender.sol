@@ -40,6 +40,7 @@ contract ERC4626CashFlowLender is
   int256 internal _debt;
 
   event DebtChanged(int256 currentDebt);
+  event Withdrawal(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(SignedQuoteRiskModule riskModule_, IERC20Metadata asset_) {
@@ -129,7 +130,14 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Deposit/mint common workflow.
+   * @dev Deposit funds into the contract
+   *
+   * Requirements:
+   * - onlyRole(LP_ROLE)
+   *
+   * @param assets The amount to deposit.
+   * @param receiver The address that will receive the transferred funds.
+   * @return Returns the actual amount withdrawn.
    */
   function deposit(
     uint256 assets,
@@ -140,19 +148,30 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Withdraw/burn common workflow.
+   * @dev Withdraws funds from the contract
+   *
+   * Requirements:
+   * - onlyRole(CUSTOMER_ROLE)
+   *
+   * @param assets The amount to withdraw.
+   * @param receiver The address that will receive the transferred funds.
+   * @return Returns the actual amount withdrawn.
    */
   function withdraw(
     uint256 assets,
     address receiver,
-    address owner
+    address // owner is ignored
   ) public override onlyRole(CUSTOMER_ROLE) returns (uint256) {
+    require(receiver != address(0), "ERC4626CashFlowLender: receiver cannot be the zero address");
     require(_debt >= 0, "ERC4626CashFlowLender: cannot withdraw if there's debt with the customer");
     uint256 balance = IERC20Metadata(asset()).balanceOf(address(this));
     require(balance >= assets, "ERC4626CashFlowLender: not enough assets to withdraw");
-
-    _decreaseDebt(assets);
-    return super.withdraw(assets, receiver, owner);
+    if (assets > 0) {
+      _decreaseDebt(assets);
+      _currency().safeTransfer(receiver, assets);
+      emit Withdrawal(receiver, assets);
+    }
+    return assets;
   }
 
   /**
