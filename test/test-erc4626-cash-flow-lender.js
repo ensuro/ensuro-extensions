@@ -31,7 +31,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(50000) },
       [lp, cust, owner],
-      [_A(5000), _A(2000), _A(1000)]
+      [_A(10000), _A(2000), _A(1000)]
     );
 
     const pool = await deployPool(hre, {
@@ -448,5 +448,34 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+  });
+
+  it("Only LP_ROLE can deposit/mint", async () => {
+    const { erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    await expect(erc4626cfl.connect(anon).deposit(_A(800), owner.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "LP_ROLE")
+    );
+
+    await expect(erc4626cfl.connect(anon).mint(_A(800), owner.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "LP_ROLE")
+    );
+
+    expect(await currency.balanceOf(lp.address)).to.be.equal(_A(5000));
+
+    await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
+    await erc4626cfl.connect(lp).deposit(_A(800), erc4626cfl.address);
+
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+    expect(await currency.balanceOf(lp.address)).to.be.equal(_A(4200));
+
+    await erc4626cfl.connect(lp).mint(_A(300), erc4626cfl.address);
+
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1100));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1100));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+    expect(await currency.balanceOf(lp.address)).to.be.equal(_A(3900));
   });
 });
