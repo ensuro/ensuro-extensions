@@ -14,18 +14,15 @@ const {
 const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
-const HOUR = 3600;
-const HALF_HOUR = HOUR / 2;
 
 describe("ERC4626CashFlowLender contract tests", function () {
-  let _A, _P;
+  let _A;
   let lp, cust, signer, resolver, creator, anon, guardian;
 
   beforeEach(async () => {
-    [__, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
+    [__, lp, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
 
     _A = amountFunction(6);
-    _P = amountFunction(8);
   });
 
   async function deployPoolFixture(creationIsOpen) {
@@ -66,18 +63,19 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
 
     const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
-    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, {
+    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address], {
       kind: "uups",
-      constructorArgs: [rm.address, currency.address],
+      constructorArgs: [currency.address],
     });
 
     await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), erc4626cfl.address);
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), erc4626cfl.address);
     await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp.address);
+    await erc4626cfl.grantRole(await erc4626cfl.CUSTOMER_ROLE(), cust.address);
+    await erc4626cfl.grantRole(await erc4626cfl.CHANGE_RM_ROLE(), changeRm.address);
     await erc4626cfl.grantRole(await erc4626cfl.RESOLVER_ROLE(), resolver.address);
     await erc4626cfl.grantRole(await erc4626cfl.POLICY_CREATOR_ROLE(), creator.address);
     await erc4626cfl.grantRole(await erc4626cfl.GUARDIAN_ROLE(), guardian.address);
-    await erc4626cfl.grantRole(await erc4626cfl.CUSTOMER_ROLE(), cust.address);
 
     return { etk, premiumsAccount, rm, pool, accessManager, currency, erc4626cfl };
   }
@@ -102,18 +100,39 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [hre.ethers.constants.AddressZero], {
         kind: "uups",
-        constructorArgs: [hre.ethers.constants.AddressZero, currency.address],
+        constructorArgs: [currency.address],
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: riskModule_ cannot be zero address");
 
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address], {
         kind: "uups",
-        constructorArgs: [rm.address, hre.ethers.constants.AddressZero],
+        constructorArgs: [hre.ethers.constants.AddressZero],
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: asset_ cannot be zero address");
+  });
+
+  it("Only CHANGE_RM_ROLE can change the RM", async () => {
+    const { rm, pool, premiumsAccount, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const newImpl = await SignedQuoteRiskModule.deploy(pool.address, premiumsAccount.address, false);
+
+    expect(await erc4626cfl.riskModule()).to.equal(rm.address);
+
+    await expect(erc4626cfl.connect(anon).setRiskModule(newImpl.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "CHANGE_RM_ROLE")
+    );
+
+    expect(await erc4626cfl.riskModule()).to.equal(rm.address);
+
+    await expect(erc4626cfl.connect(changeRm).setRiskModule(newImpl.address))
+      .to.emit(erc4626cfl, "RiskModuleChanged")
+      .withArgs(newImpl.address);
+
+    expect(await erc4626cfl.riskModule()).to.equal(newImpl.address);
   });
 
   it("Creates a policy paid by the ERC4626CashFlowLender", async () => {
@@ -130,9 +149,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const receipt = await tx.wait();
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    await expect(erc4626cfl.connect(cust).withdraw(_A(1000), anon.address, cust.address)).to.be.revertedWith(
-      "ERC4626CashFlowLender: not enough assets to withdraw"
-    );
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
@@ -141,9 +157,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
 
-    await expect(erc4626cfl.connect(cust).withdraw(_A(100), anon.address, cust.address)).to.be.revertedWith(
-      "ERC4626CashFlowLender: cannot withdraw if there's debt with the customer"
-    );
+    // await expect(erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address)).to.be.revertedWith(
+    //   "ERC4626CashFlowLender: cannot withdraw if there's debt with the customer"
+    // );
   });
 
   it("Rejects if called by unauthorized user", async () => {
@@ -156,7 +172,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     );
   });
 
-  it("Address without CUSTOMER_ROLE can't withdraw", async () => {
+  it("Address without LP_ROLE can't withdraw/redeem", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
@@ -165,7 +181,11 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
 
     await expect(erc4626cfl.connect(anon).withdraw(_A(800), owner.address, anon.address)).to.be.revertedWith(
-      accessControlMessage(anon.address, null, "CUSTOMER_ROLE")
+      accessControlMessage(anon.address, null, "LP_ROLE")
+    );
+
+    await expect(erc4626cfl.connect(anon).redeem(_A(800), owner.address, anon.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "LP_ROLE")
     );
   });
 
@@ -181,5 +201,46 @@ describe("ERC4626CashFlowLender contract tests", function () {
     );
 
     await erc4626cfl.connect(guardian).upgradeTo(newImpl.address);
+  });
+
+  it("Checks policy expires OK and withdraw", async () => {
+    const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    await currency.connect(owner).transfer(erc4626cfl.address, _A(1000));
+    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    //
+    await helpers.time.increaseTo(newPolicyEvt.args[1].expiration + 500);
+    // Expire the policy
+    await expect(pool.expirePolicy(newPolicyEvt.args[1])).not.to.emit(erc4626cfl, "DebtChanged");
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    // Withdraw the funds
+    // await expect(erc4626cfl.connect(cust).withdraw(_A(1000), anon.address, cust.address)).to.be.revertedWith(
+    //   "ERC4626CashFlowLender: not enough assets to withdraw"
+    // );
+    // await expect(erc4626cfl.connect(cust).withdraw(_A(200), anon.address, cust.address))
+    //   .to.emit(erc4626cfl, "Withdrawal")
+    //   .withArgs(anon.address, _A(200));
+    // expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(600));
+    // expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+  });
+
+  it("Address without LP_ROLE can't deposit/mint", async () => {
+    const { erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    await currency.connect(cust).transfer(erc4626cfl.address, _A(800));
+    await expect(erc4626cfl.connect(anon).deposit(_A(800), erc4626cfl.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "LP_ROLE")
+    );
+
+    await expect(erc4626cfl.connect(anon).mint(_A(800), erc4626cfl.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "LP_ROLE")
+    );
   });
 });

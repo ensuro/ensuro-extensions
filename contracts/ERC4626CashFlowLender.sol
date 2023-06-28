@@ -28,44 +28,47 @@ contract ERC4626CashFlowLender is
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
+  bytes32 public constant CHANGE_RM_ROLE = keccak256("CHANGE_RM_ROLE");
   bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
   bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
-  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-  SignedQuoteRiskModule internal immutable _riskModule;
+  SignedQuoteRiskModule internal _riskModule;
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IERC20Metadata private immutable _asset;
   int256 internal _debt;
 
   event DebtChanged(int256 currentDebt);
-  event Withdrawal(address indexed destination, uint256 amount);
+  event RiskModuleChanged(SignedQuoteRiskModule newRiskModule);
+  event CashOutPayout(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
-  constructor(SignedQuoteRiskModule riskModule_, IERC20Metadata asset_) {
-    require(
-      address(riskModule_) != address(0),
-      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
-    );
+  constructor(IERC20Metadata asset_) {
     require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
     _disableInitializers();
-    _riskModule = riskModule_;
     _asset = asset_;
   }
 
   /**
    * @dev Initializes the ERC4626CashFlowLender
    */
-  function initialize() public virtual initializer {
-    __ERC4626CashFlowLender_init();
+  function initialize(SignedQuoteRiskModule riskModule_) public virtual initializer {
+    __ERC4626CashFlowLender_init(riskModule_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __ERC4626CashFlowLender_init() internal onlyInitializing {
+  function __ERC4626CashFlowLender_init(
+    SignedQuoteRiskModule riskModule_
+  ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    require(
+      address(riskModule_) != address(0),
+      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
+    );
+    _riskModule = riskModule_;
     // Infinite approval to the PolicyPool to pay the premiums
     _currency().approve(address(_pool()), type(uint256).max);
   }
@@ -118,6 +121,7 @@ contract ERC4626CashFlowLender is
     if (_debt < 0) {
       uint256 balance = _asset.balanceOf(address(this));
       if (balance < uint256(-_debt)) return 0;
+      return balance - uint256(-_debt);
     }
     return _asset.balanceOf(address(this)) + uint256(_debt);
   }
@@ -127,6 +131,15 @@ contract ERC4626CashFlowLender is
    */
   function riskModule() public view virtual returns (SignedQuoteRiskModule) {
     return _riskModule;
+  }
+
+  function setRiskModule(SignedQuoteRiskModule riskModule_) external onlyRole(CHANGE_RM_ROLE) {
+    require(
+      address(riskModule_) != address(0),
+      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
+    );
+    _riskModule = riskModule_;
+    emit RiskModuleChanged(_riskModule);
   }
 
   /**
@@ -143,35 +156,81 @@ contract ERC4626CashFlowLender is
     uint256 assets,
     address receiver
   ) public override onlyRole(LP_ROLE) returns (uint256) {
-    _increaseDebt(assets);
     return super.deposit(assets, receiver);
+  }
+
+  /**
+   * @dev Mint funds into the contract
+   *
+   * Requirements:
+   * - onlyRole(LP_ROLE)
+   *
+   */
+  function mint(
+    uint256 shares,
+    address receiver
+  ) public override onlyRole(LP_ROLE) returns (uint256) {
+    return super.mint(shares, receiver);
   }
 
   /**
    * @dev Withdraws funds from the contract
    *
    * Requirements:
-   * - onlyRole(CUSTOMER_ROLE)
+   * - onlyRole(LP_ROLE)
    *
    * @param assets The amount to withdraw.
    * @param receiver The address that will receive the transferred funds.
+   * @param owner The address that will receive the ownership of the withdrawn shares.
    * @return Returns the actual amount withdrawn.
    */
   function withdraw(
     uint256 assets,
     address receiver,
-    address // owner is ignored
-  ) public override onlyRole(CUSTOMER_ROLE) returns (uint256) {
-    require(receiver != address(0), "ERC4626CashFlowLender: receiver cannot be the zero address");
-    require(_debt >= 0, "ERC4626CashFlowLender: cannot withdraw if there's debt with the customer");
-    uint256 balance = IERC20Metadata(asset()).balanceOf(address(this));
-    require(balance >= assets, "ERC4626CashFlowLender: not enough assets to withdraw");
-    if (assets > 0) {
-      _decreaseDebt(assets);
-      _currency().safeTransfer(receiver, assets);
-      emit Withdrawal(receiver, assets);
-    }
-    return assets;
+    address owner
+  ) public override onlyRole(LP_ROLE) returns (uint256) {
+    return super.withdraw(assets, receiver, owner);
+  }
+
+  /**
+   * @dev Withdraws funds from the contract
+   *
+   * Requirements:
+   * - onlyRole(LP_ROLE)
+   *
+   */
+  function redeem(
+    uint256 assets,
+    address receiver,
+    address owner
+  ) public override onlyRole(LP_ROLE) returns (uint256) {
+    return super.redeem(assets, receiver, owner);
+  }
+
+  // en _withdraw
+  // tengo que fijarme si tengo el liquido de la cantidad que pide
+  // si tengo 100 liquidos y deuda -40 solo puedo sacar 60
+
+  /**
+   * @dev Withdraw/redeem common workflow.
+   */
+  function _withdraw(address, address, address, uint256 assets, uint256) internal virtual override {
+    require(_balance() >= assets, "ERC4626CashFlowLender: Not enough balance to withdraw");
+  }
+
+  /**
+   *
+   * @param amount The amount to pay
+   */
+  function cashOutPayouts(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
+    require(
+      _debt < 0 && int256(amount) <= -_debt,
+      "ERC4626CashFlowLender: amount must be less than debt"
+    );
+    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to pay the debt");
+    _increaseDebt(amount);
+    _currency().transfer(destination, amount);
+    emit CashOutPayout(destination, amount);
   }
 
   /**
@@ -287,6 +346,44 @@ contract ERC4626CashFlowLender is
     return policyId;
   }
 
+  /**
+   * @dev Creates several policies paid by this contract and increases the debt. See {SignedQuoteRiskModule.newPolicy}
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPoliciesInBatch(
+    uint256[] memory payout,
+    uint256[] memory premium,
+    uint256[] memory lossProb,
+    uint40[] memory expiration,
+    bytes32[] memory policyData,
+    bytes32[] memory quoteSignatureR,
+    bytes32[] memory quoteSignatureVS,
+    uint40[] memory quoteValidUntil
+  ) external onlyRole(POLICY_CREATOR_ROLE) {
+    uint256 balanceBefore = _balance();
+    SignedQuoteRiskModule rm = riskModule();
+
+    for (uint256 i = 0; i < payout.length; i++) {
+      rm.newPolicy(
+        payout[i],
+        premium[i],
+        lossProb[i],
+        expiration[i],
+        address(this),
+        policyData[i],
+        quoteSignatureR[i],
+        quoteSignatureVS[i],
+        quoteValidUntil[i]
+      );
+    }
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+  }
+
   function resolvePolicy(
     Policy.PolicyData calldata policy,
     uint256 payout
@@ -299,6 +396,22 @@ contract ERC4626CashFlowLender is
     bool customerWon
   ) external onlyRole(RESOLVER_ROLE) {
     SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicyFullPayout(policy, customerWon);
+  }
+
+  /**
+   * @dev Resolves several policies paid by this contract and decreases the debt. See {SignedQuoteRiskModule.resolvePolicy}
+   *
+   * Requirements:
+   * - Caller must have RESOLVER_ROLE
+   *
+   */
+  function resolvePoliciesInBatch(
+    Policy.PolicyData[] calldata policy,
+    uint256[] memory payout
+  ) external onlyRole(RESOLVER_ROLE) {
+    for (uint256 i = 0; i < payout.length; i++) {
+      SignedQuoteRiskModule(address(policy[i].riskModule)).resolvePolicy(policy[i], payout[i]);
+    }
   }
 
   function onERC721Received(
