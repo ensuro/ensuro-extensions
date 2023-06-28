@@ -3,6 +3,7 @@ pragma solidity 0.8.16;
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -35,8 +36,6 @@ contract ERC4626CashFlowLender is
   bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
   SignedQuoteRiskModule internal _riskModule;
-  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-  IERC20Metadata private immutable _asset;
   int256 internal _debt;
 
   event DebtChanged(int256 currentDebt);
@@ -44,30 +43,35 @@ contract ERC4626CashFlowLender is
   event CashOutPayout(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
-  constructor(IERC20Metadata asset_) {
-    require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
+  constructor() {
     _disableInitializers();
-    _asset = asset_;
   }
 
   /**
    * @dev Initializes the ERC4626CashFlowLender
    */
-  function initialize(SignedQuoteRiskModule riskModule_) public virtual initializer {
-    __ERC4626CashFlowLender_init(riskModule_);
+  function initialize(
+    SignedQuoteRiskModule riskModule_,
+    IERC20Upgradeable asset_
+  ) public virtual initializer {
+    __ERC4626CashFlowLender_init(riskModule_, asset_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __ERC4626CashFlowLender_init(
-    SignedQuoteRiskModule riskModule_
+    SignedQuoteRiskModule riskModule_,
+    IERC20Upgradeable asset_
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
-    _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     require(
       address(riskModule_) != address(0),
       "ERC4626CashFlowLender: riskModule_ cannot be zero address"
     );
+    require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
+    __ERC4626_init(asset_);
+    _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+
     _riskModule = riskModule_;
     // Infinite approval to the PolicyPool to pay the premiums
     _currency().approve(address(_pool()), type(uint256).max);
@@ -113,10 +117,6 @@ contract ERC4626CashFlowLender is
     return _debt;
   }
 
-  function asset() public view virtual override returns (address) {
-    return address(_asset);
-  }
-
   function totalAssets() public view virtual override returns (uint256) {
     uint256 balance = _balance();
     if (_debt < 0) {
@@ -155,7 +155,7 @@ contract ERC4626CashFlowLender is
   function deposit(
     uint256 assets,
     address receiver
-  ) public override onlyRole(LP_ROLE) returns (uint256) {
+  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.deposit(assets, receiver);
   }
 
@@ -169,7 +169,7 @@ contract ERC4626CashFlowLender is
   function mint(
     uint256 shares,
     address receiver
-  ) public override onlyRole(LP_ROLE) returns (uint256) {
+  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.mint(shares, receiver);
   }
 
@@ -188,7 +188,7 @@ contract ERC4626CashFlowLender is
     uint256 assets,
     address receiver,
     address owner
-  ) public override onlyRole(LP_ROLE) returns (uint256) {
+  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.withdraw(assets, receiver, owner);
   }
 
@@ -203,19 +203,8 @@ contract ERC4626CashFlowLender is
     uint256 assets,
     address receiver,
     address owner
-  ) public override onlyRole(LP_ROLE) returns (uint256) {
+  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.redeem(assets, receiver, owner);
-  }
-
-  // en _withdraw
-  // tengo que fijarme si tengo el liquido de la cantidad que pide
-  // si tengo 100 liquidos y deuda -40 solo puedo sacar 60
-
-  /**
-   * @dev Withdraw/redeem common workflow.
-   */
-  function _withdraw(address, address, address, uint256 assets, uint256) internal virtual override {
-    require(_balance() >= assets, "ERC4626CashFlowLender: Not enough balance to withdraw");
   }
 
   /**

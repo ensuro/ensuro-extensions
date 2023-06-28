@@ -64,9 +64,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
 
     const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
-    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address], {
+    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, currency.address], {
       kind: "uups",
-      constructorArgs: [currency.address],
     });
 
     await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), erc4626cfl.address);
@@ -113,16 +112,14 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [hre.ethers.constants.AddressZero], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [hre.ethers.constants.AddressZero, currency.address], {
         kind: "uups",
-        constructorArgs: [currency.address],
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: riskModule_ cannot be zero address");
 
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, hre.ethers.constants.AddressZero], {
         kind: "uups",
-        constructorArgs: [hre.ethers.constants.AddressZero],
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: asset_ cannot be zero address");
   });
@@ -137,6 +134,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await expect(erc4626cfl.connect(anon).setRiskModule(newImpl.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "CHANGE_RM_ROLE")
+    );
+    await expect(erc4626cfl.connect(changeRm).setRiskModule(hre.ethers.constants.AddressZero)).to.be.revertedWith(
+      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
     );
 
     expect(await erc4626cfl.riskModule()).to.equal(rm.address);
@@ -166,6 +166,10 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
     expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    await expect(erc4626cfl.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(800))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "RESOLVER_ROLE")
+    );
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
@@ -305,9 +309,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1350));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-350));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
-
-    console.log("Balance of cust", (await currency.balanceOf(cust.address)).toString());
-    // expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500 + 500 - 150));
 
     await expect(erc4626cfl.connect(anon).cashOutPayouts(_A(500), cust.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "CUSTOMER_ROLE")
