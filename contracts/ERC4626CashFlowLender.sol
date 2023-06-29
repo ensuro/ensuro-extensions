@@ -207,6 +207,17 @@ contract ERC4626CashFlowLender is
     return super.redeem(assets, receiver, owner);
   }
 
+  function _withdraw(
+    address caller,
+    address receiver,
+    address owner,
+    uint256 assets,
+    uint256 shares
+  ) internal virtual override {
+    require(_balance() >= assets, "ERC4626CashFlowLender: Not enough balance to withdraw");
+    super._withdraw(caller, receiver, owner, assets, shares);
+  }
+
   /**
    *
    * @param amount The amount to pay
