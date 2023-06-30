@@ -143,14 +143,7 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Deposit funds into the contract
-   *
-   * Requirements:
-   * - onlyRole(LP_ROLE)
-   *
-   * @param assets The amount to deposit.
-   * @param receiver The address that will receive the transferred funds.
-   * @return Returns the actual amount withdrawn.
+   * @dev See {IERC4626-deposit}.
    */
   function deposit(
     uint256 assets,
@@ -160,11 +153,7 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Mint funds into the contract
-   *
-   * Requirements:
-   * - onlyRole(LP_ROLE)
-   *
+   * @dev See {IERC4626-mint}.
    */
   function mint(
     uint256 shares,
@@ -174,15 +163,7 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Withdraws funds from the contract
-   *
-   * Requirements:
-   * - onlyRole(LP_ROLE)
-   *
-   * @param assets The amount to withdraw.
-   * @param receiver The address that will receive the transferred funds.
-   * @param owner The address that will receive the ownership of the withdrawn shares.
-   * @return Returns the actual amount withdrawn.
+   * @dev See {IERC4626-withdraw}.
    */
   function withdraw(
     uint256 assets,
@@ -193,11 +174,7 @@ contract ERC4626CashFlowLender is
   }
 
   /**
-   * @dev Withdraws funds from the contract
-   *
-   * Requirements:
-   * - onlyRole(LP_ROLE)
-   *
+   * @dev See {IERC4626-redeem}.
    */
   function redeem(
     uint256 assets,
