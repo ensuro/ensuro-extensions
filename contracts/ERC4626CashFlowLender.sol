@@ -14,8 +14,10 @@ import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
 
 /**
- * @title CashFlow Lender Module
- * @dev
+ * @title CashFlow Lender Module that tracks ownership
+ * @dev Implements the ERC-4626 standard tracking how much liquidity was provided by each LP.
+ *      The assets managed by the vault are a mix of liquid USDC + the _debt tracked by the CFL. The _debt can be
+ *      negative, in that case, the CFL owes to the customer.
  *
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
@@ -64,12 +66,19 @@ contract ERC4626CashFlowLender is
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
+    require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
+    __ERC4626_init(asset_);
+    __ERC4626CashFlowLender_init_unchained(riskModule_);
+  }
+
+  // solhint-disable-next-line func-name-mixedcase
+  function __ERC4626CashFlowLender_init_unchained(
+    SignedQuoteRiskModule riskModule_
+  ) internal onlyInitializing {
     require(
       address(riskModule_) != address(0),
       "ERC4626CashFlowLender: riskModule_ cannot be zero address"
     );
-    require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
-    __ERC4626_init(asset_);
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
     _riskModule = riskModule_;
@@ -137,6 +146,10 @@ contract ERC4626CashFlowLender is
     require(
       address(riskModule_) != address(0),
       "ERC4626CashFlowLender: riskModule_ cannot be zero address"
+    );
+    require(
+      riskModule_.policyPool() == _pool(),
+      "ERC4626CashFlowLender: new riskModule must belong to the same pool"
     );
     _riskModule = riskModule_;
     emit RiskModuleChanged(_riskModule);

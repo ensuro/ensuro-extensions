@@ -3,15 +3,15 @@ const {
   initCurrency,
   deployPool,
   deployPremiumsAccount,
-  _W,
   addRiskModule,
   amountFunction,
   addEToken,
   getTransactionEvent,
   accessControlMessage,
+  makeQuoteMessage,
   makeSignedQuote,
 } = require("@ensuro/core/js/test-utils");
-const { newPolicy, defaultPolicyParams } = require("./test-utils");
+const { newPolicy, defaultPolicyParams, makeBatchParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
@@ -80,25 +80,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     return { etk, premiumsAccount, rm, pool, accessManager, currency, erc4626cfl };
   }
 
-  function makeQuoteMessage({ rmAddress, payout, premium, lossProb, expiration, policyData, validUntil }) {
-    return ethers.utils.solidityPack(
-      ["address", "uint256", "uint256", "uint256", "uint40", "bytes32", "uint40"],
-      [rmAddress, payout, premium, lossProb, expiration, policyData, validUntil]
-    );
-  }
-
-  function makeBatchParams(policyParams, signatures) {
-    const payout = policyParams.map((pp) => pp.payout);
-    const premium = policyParams.map((pp) => pp.premium);
-    const lossProb = policyParams.map((pp) => pp.lossProb);
-    const expiration = policyParams.map((pp) => pp.expiration);
-    const policyData = policyParams.map((pp) => pp.policyData);
-    const quoteSignatureR = signatures.map((s) => s.r);
-    const quoteSignatureVS = signatures.map((s) => s._vs);
-    const validUntil = policyParams.map((pp) => pp.validUntil);
-    return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];
-  }
-
   it("ERC4626CashFlowLender init", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
@@ -125,7 +106,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
   });
 
   it("Only CHANGE_RM_ROLE can change the RM", async () => {
-    const { rm, pool, premiumsAccount, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+    const { rm, pool, premiumsAccount, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
 
     const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
     const newImpl = await SignedQuoteRiskModule.deploy(pool.address, premiumsAccount.address, false);
