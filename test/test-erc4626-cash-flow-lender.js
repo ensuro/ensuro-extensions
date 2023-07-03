@@ -544,4 +544,28 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
     expect(await currency.balanceOf(anon.address)).to.be.equal(_A(300));
   });
+
+  it("New RM must belong to the same pool", async () => {
+    const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    const otherPool = await deployPool(hre, {
+      currency: currency.address,
+      grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
+      treasuryAddress: "0x87c47c9a5a2aa74ae714857d64911d9a091c25b1", // Other Random address
+    });
+    otherPool._A = _A;
+
+    const premiumsAccount = await deployPremiumsAccount(hre, otherPool, {}, false);
+
+    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const newImpl = await SignedQuoteRiskModule.deploy(otherPool.address, premiumsAccount.address, false);
+
+    expect(await erc4626cfl.riskModule()).to.equal(rm.address);
+
+    await expect(erc4626cfl.connect(changeRm).setRiskModule(newImpl.address)).to.be.revertedWith(
+      "ERC4626CashFlowLender: new riskModule must belong to the same pool"
+    );
+
+    expect(await erc4626cfl.riskModule()).to.equal(rm.address); // dont change
+  });
 });
