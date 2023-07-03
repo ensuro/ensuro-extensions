@@ -31,7 +31,20 @@ function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
   );
 }
 
+function makeBatchParams(policyParams, signatures) {
+  const payout = policyParams.map((pp) => pp.payout);
+  const premium = policyParams.map((pp) => pp.premium);
+  const lossProb = policyParams.map((pp) => pp.lossProb);
+  const expiration = policyParams.map((pp) => pp.expiration);
+  const policyData = policyParams.map((pp) => pp.policyData);
+  const quoteSignatureR = signatures.map((s) => s.r);
+  const quoteSignatureVS = signatures.map((s) => s._vs);
+  const validUntil = policyParams.map((pp) => pp.validUntil);
+  return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];
+}
+
 module.exports = {
   newPolicy,
   defaultPolicyParams,
+  makeBatchParams,
 };
