@@ -429,4 +429,25 @@ describe("EuroCashFlowLender contract tests", function () {
       .withArgs(_A(20 - 100));
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20) - _A(100)); // 20 previous debt - 100 payout
   });
+
+  it("Only policy pool can call onPayoutReceived", async () => {
+    const { pool, rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(100), premium: _A(20) });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    const now = await helpers.time.latest();
+    await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
+    let [, assetPrice] = await assetOracle.latestRoundData();
+    assetPrice = toCurrencyDecimals(assetPrice);
+
+    await currency.connect(owner).transfer(eurocfLender.address, _A(500));
+    const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+
+    await expect(
+      eurocfLender.connect(owner).onPayoutReceived(owner.address, pool.address, policyId, _A(800))
+    ).to.be.revertedWith("Only the PolicyPool should call this method");
+  });
 });
