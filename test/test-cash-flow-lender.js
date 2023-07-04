@@ -466,6 +466,32 @@ describe("CashFlowLender contract tests", function () {
         cfLender.connect(owner).onPayoutReceived(owner.address, pool.address, policyId, _A(800))
       ).to.be.revertedWith("Only the PolicyPool should call this method");
     });
+
+    it(_tn("Resolve policy from RM"), async () => {
+      const { rm, pool, accessManager, currency, cfLender } = await helpers.loadFixture(variant.fixture);
+      let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
+      let quoteMessage = makeQuoteMessage(policyParams);
+      let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+
+      await currency.connect(owner).transfer(cfLender.address, _A(1000));
+      const tx = await newPolicy(cfLender, creator, policyParams, cust, signature);
+      const receipt = await tx.wait();
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(800)); // 200 spent on the premium
+      expect(await cfLender.currentDebt()).to.be.equal(_A(200));
+
+      const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      const policyId = newPolicyEvt.args[1].id;
+      expect(await pool.ownerOf(policyId)).to.be.equal(cfLender.address);
+
+      await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), resolver.address);
+
+      await rm.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+      if (variant.name === "ERC4626CashFlowLender") {
+        expect(await cfLender.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+      } else {
+        expect(await cfLender.currentDebt()).to.be.equal(_A(0));
+      }
+    });
   });
 
   it("Creates a policy paid by the MultiRMCashFlowLender with two different RMs", async () => {
