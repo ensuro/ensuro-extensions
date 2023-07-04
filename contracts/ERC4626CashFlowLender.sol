@@ -129,7 +129,6 @@ contract ERC4626CashFlowLender is
   function totalAssets() public view virtual override returns (uint256) {
     uint256 balance = _balance();
     if (_debt < 0) {
-      if (balance < uint256(-_debt)) return 0;
       return balance - uint256(-_debt);
     }
     return balance + uint256(_debt);
