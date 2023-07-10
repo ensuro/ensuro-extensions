@@ -17,13 +17,14 @@ const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("CashFlowLender contract tests", function () {
-  let _A;
+  let _A, _P;
   let lp, cust, signer, resolver, creator, anon, guardian;
 
   beforeEach(async () => {
     [__, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
 
     _A = amountFunction(6);
+    _P = amountFunction(8);
   });
 
   async function deployPoolFixture(creationIsOpen) {
@@ -122,6 +123,24 @@ describe("CashFlowLender contract tests", function () {
     await cfLender.connect(owner).setActiveRiskModule(rm.address);
 
     return { cfLender, rm, pool, premiumsAccount, SignedQuoteRiskModule, accessManager, origRM, ...others };
+  }
+
+  async function deployPoolAndERC4626CFLFixture() {
+    const { rm, accessManager, currency, ...others } = await deployPoolFixture();
+    const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
+    const cfLender = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, currency.address], {
+      kind: "uups",
+    });
+
+    await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), cfLender.address);
+    await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), cfLender.address);
+    await cfLender.grantRole(await cfLender.LP_ROLE(), lp.address);
+    await cfLender.grantRole(await cfLender.CUSTOMER_ROLE(), cust.address);
+    await cfLender.grantRole(await cfLender.RESOLVER_ROLE(), resolver.address);
+    await cfLender.grantRole(await cfLender.POLICY_CREATOR_ROLE(), creator.address);
+    await cfLender.grantRole(await cfLender.GUARDIAN_ROLE(), guardian.address);
+
+    return { rm, accessManager, currency, cfLender, ...others };
   }
 
   const variants = [
@@ -423,6 +442,55 @@ describe("CashFlowLender contract tests", function () {
         cfLender,
         "Withdrawal"
       );
+    });
+  });
+
+  const allCFLs = variants.concat([{ name: "ERC4626CashFlowLender", fixture: deployPoolAndERC4626CFLFixture }]);
+
+  allCFLs.map((variant) => {
+    const _tn = (testName) => `${testName} - ${variant.name}`;
+
+    it(_tn("Only policy pool can call onPayoutReceived"), async () => {
+      const { rm, pool, currency, cfLender } = await helpers.loadFixture(variant.fixture);
+      let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
+      let quoteMessage = makeQuoteMessage(policyParams);
+      let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+      await currency.connect(owner).transfer(cfLender.address, _A(1000));
+
+      const tx = await newPolicy(cfLender, creator, policyParams, cust, signature);
+      const receipt = await tx.wait();
+      const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      const policyId = newPolicyEvt.args[1].id;
+
+      await expect(
+        cfLender.connect(owner).onPayoutReceived(owner.address, pool.address, policyId, _A(800))
+      ).to.be.revertedWith("Only the PolicyPool should call this method");
+    });
+
+    it(_tn("Resolve policy from RM"), async () => {
+      const { rm, pool, accessManager, currency, cfLender } = await helpers.loadFixture(variant.fixture);
+      let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
+      let quoteMessage = makeQuoteMessage(policyParams);
+      let signature = ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(quoteMessage)));
+
+      await currency.connect(owner).transfer(cfLender.address, _A(1000));
+      const tx = await newPolicy(cfLender, creator, policyParams, cust, signature);
+      const receipt = await tx.wait();
+      expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(800)); // 200 spent on the premium
+      expect(await cfLender.currentDebt()).to.be.equal(_A(200));
+
+      const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      const policyId = newPolicyEvt.args[1].id;
+      expect(await pool.ownerOf(policyId)).to.be.equal(cfLender.address);
+
+      await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), resolver.address);
+
+      await rm.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+      if (variant.name === "ERC4626CashFlowLender") {
+        expect(await cfLender.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+      } else {
+        expect(await cfLender.currentDebt()).to.be.equal(_A(0));
+      }
     });
   });
 
