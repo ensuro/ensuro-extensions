@@ -568,4 +568,47 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     expect(await erc4626cfl.riskModule()).to.equal(rm.address); // dont change
   });
+
+  it("ERC4626 maxRedeem test", async () => {
+    const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
+    await erc4626cfl.connect(lp).deposit(_A(1000), lp.address);
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(1000));
+    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+
+    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(1000));
+    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+
+    await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(900));
+
+    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(900));
+    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+  });
 });
