@@ -17,11 +17,11 @@ const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("ERC4626CashFlowLender contract tests", function () {
   let _A;
-  let lp, cust, signer, resolver, creator, anon, guardian;
+  let lp, lp2, cust, signer, resolver, creator, anon, guardian;
   const _tn = (testName) => `${testName}`;
 
   beforeEach(async () => {
-    [__, lp, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
+    [__, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -30,8 +30,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     creationIsOpen = creationIsOpen === undefined ? true : creationIsOpen;
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(50000) },
-      [lp, cust, owner],
-      [_A(10000), _A(2000), _A(1000)]
+      [lp, lp2, cust, owner],
+      [_A(10000), _A(10000), _A(2000), _A(1000)]
     );
 
     const pool = await deployPool(hre, {
@@ -569,103 +569,130 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.riskModule()).to.equal(rm.address); // dont change
   });
 
-  it("ERC4626 maxRedeem test", async () => {
-    const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+  ["maxRedeem", "maxWithdraw"].map((method) => {
+    it(_tn(`ERC4626 ${method} test`), async () => {
+      const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+      const internalCall = method === "maxRedeem" ? "redeem" : "withdraw";
 
-    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    const signature = await makeSignedQuote(signer, policyParams);
+      let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+      const signature = await makeSignedQuote(signer, policyParams);
 
-    await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
-    await erc4626cfl.connect(lp).deposit(_A(1000), lp.address);
+      await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
+      await erc4626cfl.connect(lp).deposit(_A(1000), lp.address);
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(1000));
-    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(1000));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
-    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
-    let receipt = await tx.wait();
-    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+      let receipt = await tx.wait();
+      let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(800));
-    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(800));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-    await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+      await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(700));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(700));
 
-    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+      await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(900));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(900));
 
-    await erc4626cfl.connect(lp).redeem(_A(170), anon.address, lp.address);
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(730));
-    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+      await erc4626cfl.connect(lp)[internalCall](_A(170), anon.address, lp.address);
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(730));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-    await erc4626cfl.connect(lp).redeem(_A(730), anon.address, lp.address);
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(0));
-    expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
-  });
+      await erc4626cfl.connect(lp)[internalCall](_A(730), anon.address, lp.address);
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
+    });
 
-  it("ERC4626 maxWithdraw test", async () => {
-    const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+    it(_tn(`ERC4626 ${method} with multiples LPs`), async () => {
+      const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+      const internalCall = method === "maxRedeem" ? "redeem" : "withdraw";
 
-    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
-    const signature = await makeSignedQuote(signer, policyParams);
+      let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
+      const signature = await makeSignedQuote(signer, policyParams);
 
-    await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
-    await erc4626cfl.connect(lp).deposit(_A(1000), lp.address);
+      await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp2.address);
 
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(1000));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+      await currency.connect(lp).approve(erc4626cfl.address, _A(5000));
+      await currency.connect(lp2).approve(erc4626cfl.address, _A(5000));
+      await erc4626cfl.connect(lp).deposit(_A(500), lp.address);
+      await erc4626cfl.connect(lp2).deposit(_A(500), lp2.address);
 
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
-    let receipt = await tx.wait();
-    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+      let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+      let receipt = await tx.wait();
+      let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(800));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
-    await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(700));
+      await erc4626cfl.connect(lp)[internalCall](_A(100), anon.address, lp.address);
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(400));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
 
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(900));
+      await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    await erc4626cfl.connect(lp).withdraw(_A(170), anon.address, lp.address);
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(730));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(400));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
 
-    await erc4626cfl.connect(lp).withdraw(_A(730), anon.address, lp.address);
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(0));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+      await erc4626cfl.connect(lp)[internalCall](_A(170), anon.address, lp.address);
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(230));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
+
+      await erc4626cfl.connect(lp)[internalCall](_A(230), anon.address, lp.address);
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(500));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
+
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-600));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1100));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(500));
+
+      await erc4626cfl.connect(lp2)[internalCall](_A(500), anon.address, lp2.address);
+      expect(await erc4626cfl[method](lp2.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(0));
+      expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
+
+      expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-600));
+      expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(600));
+      expect(await erc4626cfl.totalAssets()).to.be.equal(_A(0));
+    });
   });
 });
