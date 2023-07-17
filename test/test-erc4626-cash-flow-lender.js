@@ -598,7 +598,10 @@ describe("ERC4626CashFlowLender contract tests", function () {
       expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(800));
       expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-      await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
+      expect(await currency.balanceOf(lp.address)).to.be.equal(_A(4000)); // 5000 initial - 1000 deposit
+      await erc4626cfl.connect(lp)[internalCall](_A(100), lp.address, lp.address);
+      expect(await currency.balanceOf(lp.address)).to.be.equal(_A(4100)); // 5000 initial - 1000 deposit + 100 withdraw
+
       expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
       expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
       expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
@@ -612,11 +615,14 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
       expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(900));
 
-      await erc4626cfl.connect(lp)[internalCall](_A(170), anon.address, lp.address);
+      await erc4626cfl.connect(lp)[internalCall](_A(170), lp.address, lp.address);
+      expect(await currency.balanceOf(lp.address)).to.be.equal(_A(4270)); // 5000 initial - 1000 deposit + (170 + 100) withdraw
       expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(730));
       expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
 
-      await erc4626cfl.connect(lp)[internalCall](_A(730), anon.address, lp.address);
+      await erc4626cfl.connect(lp)[internalCall](_A(730), lp.address, lp.address);
+
+      expect(await currency.balanceOf(lp.address)).to.be.equal(_A(5000)); // 5000 initial - 1000 deposit + ( 100 + 170 + 730 ) withdraw
       expect(await erc4626cfl[method](lp.address)).to.be.equal(_A(0));
       expect(await erc4626cfl[method](anon.address)).to.be.equal(_A(0));
     });
