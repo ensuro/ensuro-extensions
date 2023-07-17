@@ -174,6 +174,14 @@ contract ERC4626CashFlowLender is
     return super.mint(shares, receiver);
   }
 
+  function maxRedeem(address owner) public view virtual override returns (uint256) {
+    uint256 maxRedeemable = super.maxRedeem(owner);
+    if (_debt < 0) {
+      return maxRedeemable > uint256(-_debt) ? maxRedeemable - uint256(-_debt) : 0;
+    }
+    return maxRedeemable > uint256(_debt) ? maxRedeemable - uint256(_debt) : 0;
+  }
+
   /**
    * @dev See {IERC4626-withdraw}.
    */

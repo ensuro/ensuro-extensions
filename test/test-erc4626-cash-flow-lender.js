@@ -593,7 +593,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(1000));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(800));
     expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
 
     await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
@@ -601,14 +601,21 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(900));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(700));
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1500));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
-    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(900));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(300));
+
+    await expect(erc4626cfl.connect(lp).redeem(_A(301), anon.address, lp.address)).to.be.revertedWith(
+      "ERC4626: redeem more than max"
+    );
+
+    await erc4626cfl.connect(lp).redeem(_A(170), anon.address, lp.address);
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(130));
     expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
   });
 });
