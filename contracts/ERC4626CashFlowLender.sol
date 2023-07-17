@@ -12,6 +12,7 @@ import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModul
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @title CashFlow Lender Module that tracks ownership
@@ -175,11 +176,11 @@ contract ERC4626CashFlowLender is
   }
 
   function maxRedeem(address owner) public view virtual override returns (uint256) {
-    uint256 maxRedeemable = super.maxRedeem(owner);
-    if (_debt < 0) {
-      return maxRedeemable > uint256(-_debt) ? maxRedeemable - uint256(-_debt) : 0;
-    }
-    return maxRedeemable > uint256(_debt) ? maxRedeemable - uint256(_debt) : 0;
+    return Math.min(super.maxRedeem(owner), _balance());
+  }
+
+  function maxWithdraw(address owner) public view virtual override returns (uint256) {
+    return Math.min(super.maxRedeem(owner), _balance());
   }
 
   /**
