@@ -176,11 +176,12 @@ contract ERC4626CashFlowLender is
   }
 
   function maxRedeem(address owner) public view virtual override returns (uint256) {
-    return Math.min(super.maxRedeem(owner), _balance());
+    uint256 shares = convertToShares(_balance());
+    return Math.min(super.maxRedeem(owner), shares);
   }
 
   function maxWithdraw(address owner) public view virtual override returns (uint256) {
-    return Math.min(super.maxRedeem(owner), _balance());
+    return Math.min(super.maxWithdraw(owner), _balance());
   }
 
   /**
