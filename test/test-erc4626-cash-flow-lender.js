@@ -837,14 +837,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
-
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(2000));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(2000));
+    expect(await erc4626cfl.totalSupply()).to.be.equal(_A(1000));
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(2000));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
 
     expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(500));
     expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
     expect(await erc4626cfl.maxRedeem(anon.address)).to.be.equal(_A(0));
+
+    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.closeTo(_A(1000), _A("0.001"));
+    expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.closeTo(_A(1000), _A("0.001"));
+    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
 
     expect(await currency.balanceOf(lp.address)).to.be.equal(_A(4500)); // 5000 initial - 500 deposit
 
