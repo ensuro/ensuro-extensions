@@ -615,7 +615,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(2000));
   });
 
-  it("Two LPs with policies - maxWithdraw ", async () => {
+  it("Two LPs with policies - maxWithdraw/maxRedeem - assets == shares ", async () => {
     const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
@@ -628,14 +628,17 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.connect(lp).deposit(_A(500), lp.address);
     await erc4626cfl.connect(lp2).deposit(_A(500), lp2.address);
 
+    // Check maxWithdraw and maxRedeem
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(500));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(500));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
+    // First policy, should increase the debt to 200 and decrease the balance
     let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
     let receipt = await tx.wait();
     let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
@@ -644,17 +647,22 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
+    // same maxWithdraw and maxRedeem ( assets == shares )
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(500));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(500));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
-    await erc4626cfl.connect(lp).withdraw(_A(100), anon.address, lp.address);
+    await erc4626cfl.connect(lp).withdraw(_A(100), lp.address, lp.address);
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900));
 
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(400));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(400));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
@@ -664,31 +672,35 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(400));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
 
-    await erc4626cfl.connect(lp).withdraw(_A(170), anon.address, lp.address);
+    await erc4626cfl.connect(lp).withdraw(_A(170), lp.address, lp.address);
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(230));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
 
-    await erc4626cfl.connect(lp).withdraw(_A(230), anon.address, lp.address);
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(230));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
+
+    await erc4626cfl.connect(lp).withdraw(_A(230), lp.address, lp.address);
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(0));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(0));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-600));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1100));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(500));
 
-    await erc4626cfl.connect(lp2).withdraw(_A(500), anon.address, lp2.address);
+    await erc4626cfl.connect(lp2).withdraw(_A(500), lp2.address, lp2.address);
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(0));
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(0));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(0));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-600));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(600));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(0));
   });
 
-  it("Two LPs without policies - maxWithdraw", async () => {
+  it("Two LPs without policies - maxWithdraw/maxRedeem - assets !== shares", async () => {
     const { erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
     await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp2.address);
@@ -698,24 +710,31 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.connect(lp).deposit(_A(500), lp.address);
     await erc4626cfl.connect(lp2).deposit(_A(500), lp2.address);
 
+    // Check maxWithdraw and maxRedeem
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.equal(_A(500));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.equal(_A(500));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(500));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1000));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
 
+    // "Free money" -> assets != shares
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(2000));
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(2000));
 
+    // maxWithdraw increase to 1000
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.closeTo(_A(1000), _A("0.01"));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.closeTo(_A(1000), _A("0.01"));
-    expect(await erc4626cfl.maxWithdraw(anon.address)).to.be.equal(_A(0));
+    // maxRedeem is the same
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.equal(_A(500));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
 
+    // Withdraw almost all of the funds from lp
     await erc4626cfl.connect(lp).withdraw(_A("999.9999"), lp.address, lp.address);
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.closeTo(_A(1000), _A("0.0001"));
@@ -724,6 +743,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.closeTo(_A(0), _A("0.01"));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.closeTo(_A(1000), _A("0.01"));
 
+    expect(await erc4626cfl.maxRedeem(lp.address)).to.be.closeTo(_A(0), _A("0.01"));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(500));
+
     expect(await currency.balanceOf(lp.address)).to.be.closeTo(_A("5499.9999"), _A("0.001")); // 5000 initial - 500 deposit + 1000 withdraw
 
     // try to withdraw more than he has
@@ -731,13 +753,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
       "ERC4626: withdraw more than max"
     );
 
+    // try to redeem more than he has
+    await expect(erc4626cfl.connect(lp2).redeem(_A(501), lp2.address, lp2.address)).to.be.revertedWith(
+      "ERC4626: redeem more than max"
+    );
+
     await erc4626cfl.connect(lp2).withdraw(_A(100), lp2.address, lp2.address);
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.closeTo(_A(900), _A("0.0001"));
     expect(await erc4626cfl.totalAssets()).to.be.closeTo(_A(900), _A("0.0001"));
 
-    expect(await erc4626cfl.maxWithdraw(lp.address)).to.be.closeTo(_A(0), _A("0.01"));
     expect(await erc4626cfl.maxWithdraw(lp2.address)).to.be.closeTo(_A(900), _A("0.01"));
+    expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(450)); // withdraw 100 -> 50 assets and 50 shares
 
     expect(await currency.balanceOf(lp2.address)).to.be.equal(_A(9600)); // 10k initial - 500 deposit + 100 withdraw
   });
