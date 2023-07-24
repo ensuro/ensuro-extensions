@@ -12,6 +12,7 @@ import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModul
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @title CashFlow Lender Module that tracks ownership
@@ -172,6 +173,14 @@ contract ERC4626CashFlowLender is
     address receiver
   ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.mint(shares, receiver);
+  }
+
+  function maxRedeem(address owner) public view virtual override returns (uint256) {
+    return Math.min(super.maxRedeem(owner), convertToShares(_balance()));
+  }
+
+  function maxWithdraw(address owner) public view virtual override returns (uint256) {
+    return Math.min(super.maxWithdraw(owner), _balance());
   }
 
   /**
