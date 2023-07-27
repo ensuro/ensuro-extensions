@@ -2,9 +2,9 @@ const { expect } = require("chai");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
-const { WhitelistStatus } = require("@ensuro/core/js/deploy");
+const { WhitelistStatus } = require("@ensuro/core/js/enums");
 
-const { getRole, accessControlMessage, grantRole } = require("@ensuro/core/js/test-utils");
+const { getRole, accessControlMessage, grantRole } = require("@ensuro/core/js/utils");
 
 const { fork } = require("./utils");
 

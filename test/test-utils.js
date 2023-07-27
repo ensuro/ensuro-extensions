@@ -1,5 +1,5 @@
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
-const { _W, amountFunction } = require("@ensuro/core/js/test-utils");
+const { _W, amountFunction } = require("@ensuro/core/js/utils");
 
 const _A = amountFunction(6);
 

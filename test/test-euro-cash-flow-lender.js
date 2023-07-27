@@ -1,15 +1,17 @@
 const { expect } = require("chai");
 const {
-  initCurrency,
-  deployPool,
-  deployPremiumsAccount,
   _W,
-  addRiskModule,
   amountFunction,
-  addEToken,
   getTransactionEvent,
   accessControlMessage,
   makeSignedQuote,
+} = require("@ensuro/core/js/utils");
+const {
+  initCurrency,
+  deployPool,
+  deployPremiumsAccount,
+  addRiskModule,
+  addEToken,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
@@ -35,7 +37,7 @@ describe("EuroCashFlowLender contract tests", function () {
       [_A(5000), _A(500), _A(1000)]
     );
 
-    const pool = await deployPool(hre, {
+    const pool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
@@ -46,7 +48,7 @@ describe("EuroCashFlowLender contract tests", function () {
 
     // Setup the liquidity sources
     const etk = await addEToken(pool, {});
-    const premiumsAccount = await deployPremiumsAccount(hre, pool, { srEtkAddr: etk.address });
+    const premiumsAccount = await deployPremiumsAccount(pool, { srEtkAddr: etk.address });
 
     // Provide some liquidity
     await currency.connect(lp).approve(pool.address, _A(5000));

@@ -1,15 +1,17 @@
 const { expect } = require("chai");
 const {
-  initCurrency,
-  deployPool,
-  deployPremiumsAccount,
-  addRiskModule,
   amountFunction,
-  addEToken,
   getTransactionEvent,
   accessControlMessage,
   makeQuoteMessage,
   makeSignedQuote,
+} = require("@ensuro/core/js/utils");
+const {
+  initCurrency,
+  deployPool,
+  deployPremiumsAccount,
+  addRiskModule,
+  addEToken,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams, makeBatchParams } = require("./test-utils");
 const hre = require("hardhat");
@@ -34,7 +36,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
       [_A(10000), _A(10000), _A(2000), _A(1000)]
     );
 
-    const pool = await deployPool(hre, {
+    const pool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
@@ -45,7 +47,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     // Setup the liquidity sources
     const etk = await addEToken(pool, {});
-    const premiumsAccount = await deployPremiumsAccount(hre, pool, { srEtkAddr: etk.address });
+    const premiumsAccount = await deployPremiumsAccount(pool, { srEtkAddr: etk.address });
 
     // Provide some liquidity
     await currency.connect(lp).approve(pool.address, _A(5000));
@@ -548,14 +550,14 @@ describe("ERC4626CashFlowLender contract tests", function () {
   it("New RM must belong to the same pool", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
-    const otherPool = await deployPool(hre, {
+    const otherPool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x87c47c9a5a2aa74ae714857d64911d9a091c25b1", // Other Random address
     });
     otherPool._A = _A;
 
-    const premiumsAccount = await deployPremiumsAccount(hre, otherPool, {}, false);
+    const premiumsAccount = await deployPremiumsAccount(otherPool, {}, false);
 
     const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
     const newImpl = await SignedQuoteRiskModule.deploy(otherPool.address, premiumsAccount.address, false);
