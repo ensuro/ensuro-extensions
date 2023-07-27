@@ -21,10 +21,10 @@ const HALF_HOUR = HOUR / 2;
 
 describe("EuroCashFlowLender contract tests", function () {
   let _A, _P;
-  let lp, cust, signer, resolver, creator, anon, guardian;
+  let anon, creator, cust, guardian, lp, owner, resolver, signer;
 
   beforeEach(async () => {
-    [__, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
+    [owner, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
 
     _A = amountFunction(6);
     _P = amountFunction(8);
@@ -224,8 +224,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(800));
     await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -256,8 +254,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -319,8 +315,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -341,8 +335,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - 3 * HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await expect(newPolicy(eurocfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
       "Price is older than tolerable"
@@ -350,26 +342,23 @@ describe("EuroCashFlowLender contract tests", function () {
   });
 
   it("Test only the owner can withdraw the funds", async () => {
-    const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+    const { rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
-    let receipt = await tx.wait();
+    await tx.wait();
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(200));
-    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162")); // 1000 - (200 * 1.08919) = 782.162
 
     // Can't withdraw to zero address
-    await expect(eurocfLender.connect(owner).withdraw(_A(200), ethers.constants.AddressZero)).to.be.revertedWith(
+    await expect(eurocfLender.connect(owner).withdraw(_A(200), hre.ethers.constants.AddressZero)).to.be.revertedWith(
       "EuroCashFlowLender: destination cannot be the zero address"
     );
     // Try changing the customer with anon
@@ -383,12 +372,12 @@ describe("EuroCashFlowLender contract tests", function () {
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162") - _A(300));
 
-    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address))
+    await expect(eurocfLender.connect(owner).withdraw(hre.ethers.constants.MaxUint256, anon.address))
       .to.emit(eurocfLender, "Withdrawal")
       .withArgs(anon.address, _A("782.162") - _A(300));
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(0));
     // When no more funds, withdraw doesn't fails, just doesn't do anything
-    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).not.to.emit(
+    await expect(eurocfLender.connect(owner).withdraw(hre.ethers.constants.MaxUint256, anon.address)).not.to.emit(
       eurocfLender,
       "Withdrawal"
     );
@@ -439,8 +428,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(500));
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);

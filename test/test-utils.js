@@ -1,3 +1,4 @@
+const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const { _W, amountFunction } = require("@ensuro/core/js/utils");
 
@@ -8,7 +9,7 @@ async function defaultPolicyParams({ rmAddress, payout, premium, lossProb, expir
   return {
     rmAddress,
     payout: payout || _A(1000),
-    premium: premium || ethers.constants.MaxUint256,
+    premium: premium || hre.ethers.constants.MaxUint256,
     lossProb: lossProb || _W(0.1),
     expiration: expiration || now + 3600 * 24 * 30,
     policyData: policyData || "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3235",

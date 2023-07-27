@@ -19,11 +19,10 @@ const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("ERC4626CashFlowLender contract tests", function () {
   let _A;
-  let lp, lp2, cust, signer, resolver, creator, anon, guardian;
-  const _tn = (testName) => `${testName}`;
+  let anon, changeRm, creator, cust, guardian, lp, lp2, owner, resolver, signer;
 
   beforeEach(async () => {
-    [__, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
+    [, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -158,8 +157,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
   });
 
-  ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) => {
-    it(_tn(`Rejects if called by unauthorized user - ${method}`), async () => {
+  ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) =>
+    it(`Rejects if called by unauthorized user - ${method}`, async () => {
       const { rm, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
       const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
       const signature = await makeSignedQuote(signer, policyParams);
@@ -167,8 +166,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
       await expect(newPolicy(erc4626cfl, anon, policyParams, cust, signature, method)).to.be.revertedWith(
         accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE")
       );
-    });
-  });
+    })
+  );
 
   it("Address without LP_ROLE can't withdraw/redeem", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
@@ -326,7 +325,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
     ];
     const quoteMessages = policyParams.map(makeQuoteMessage);
     const signatures = await Promise.all(
-      quoteMessages.map(async (qm) => ethers.utils.splitSignature(await signer.signMessage(ethers.utils.arrayify(qm))))
+      quoteMessages.map(async (qm) =>
+        hre.ethers.utils.splitSignature(await signer.signMessage(hre.ethers.utils.arrayify(qm)))
+      )
     );
 
     await expect(

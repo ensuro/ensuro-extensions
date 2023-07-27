@@ -1,10 +1,9 @@
 const { expect } = require("chai");
 const hre = require("hardhat");
-const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 const { WhitelistStatus } = require("@ensuro/core/js/enums");
 
-const { getRole, accessControlMessage, grantRole } = require("@ensuro/core/js/utils");
+const { getRole, accessControlMessage } = require("@ensuro/core/js/utils");
 
 const { fork } = require("./utils");
 
@@ -24,6 +23,7 @@ const polygonAddresses = {
   quadAdmin: "0x76694A182dB047067521c73161Ebf3Db5Ca988d3",
 };
 
+// eslint-disable-next-line func-style
 const keccak256 = (str) => hre.ethers.utils.keccak256(hre.ethers.utils.toUtf8Bytes(str));
 
 const attributes = {
@@ -35,7 +35,7 @@ const attributes = {
 };
 
 describe("Quadrata whitelist", () => {
-  let owner, nobody, admin, operative, lp;
+  let admin, lp, nobody, operative, owner;
 
   beforeEach(async () => {
     [owner, nobody, admin, operative, lp] = await hre.ethers.getSigners();
