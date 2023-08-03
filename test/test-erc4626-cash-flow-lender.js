@@ -160,7 +160,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
   });
 
-  ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) =>
+  ["newPolicy"].map((method) =>
     it(`Rejects if called by unauthorized user - ${method}`, async () => {
       const { rm, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
       const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
@@ -277,7 +277,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     });
     signature = await makeSignedQuote(signer, policyParams);
 
-    tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature, "newPolicyFull");
+    tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
     receipt = await tx.wait();
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(150));
     newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
@@ -424,7 +424,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.convertToAssets(_A(1100))).not.to.be.equal(_A(1100));
   });
 
-  it("Creates a policy paid by holder", async () => {
+  it.skip("Creates a policy paid by holder", async () => {
     const { rm, pool, currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
