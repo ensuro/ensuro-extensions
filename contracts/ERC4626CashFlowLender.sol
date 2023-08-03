@@ -9,6 +9,7 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
+import {SignedBucketRiskModule} from "@ensuro/core/contracts/SignedBucketRiskModule.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
@@ -231,15 +232,42 @@ contract ERC4626CashFlowLender is
     emit CashOutPayout(destination, amount);
   }
 
+  function _createBucketPolicy(
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil,
+    address riskModule_,
+    uint256 bucketId
+  ) internal returns (uint256 policyId) {
+    policyId = SignedBucketRiskModule(riskModule_).newPolicy(
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      address(this),
+      policyData,
+      bucketId,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    return policyId;
+  }
+
   /**
-   * @dev Creates a new policy paid by this contract and increases the debt. See {SignedQuoteRiskModule.newPolicyFull}
+   * @dev Creates a new policy paid by this contract and increases the debt.
    *
    * Requirements:
    * - Caller must have POLICY_CREATOR_ROLE
    * - _balance() >= than the amount of the premium
    *
    */
-  function newPolicyFull(
+  function newPolicyWithRm(
     uint256 payout,
     uint256 premium,
     uint256 lossProb,
@@ -248,23 +276,94 @@ contract ERC4626CashFlowLender is
     bytes32 policyData,
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
-    uint40 quoteValidUntil
-  ) external onlyRole(POLICY_CREATOR_ROLE) returns (Policy.PolicyData memory createdPolicy) {
+    uint40 quoteValidUntil,
+    address riskModule_,
+    uint256 bucketId
+  ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
-    createdPolicy = riskModule().newPolicyFull(
-      payout,
-      premium,
-      lossProb,
-      expiration,
-      address(this),
-      policyData,
-      quoteSignatureR,
-      quoteSignatureVS,
-      quoteValidUntil
-    );
+    if (bucketId == type(uint256).max) {
+      policyId = SignedQuoteRiskModule(riskModule_).newPolicy(
+        payout,
+        premium,
+        lossProb,
+        expiration,
+        address(this),
+        policyData,
+        quoteSignatureR,
+        quoteSignatureVS,
+        quoteValidUntil
+      );
+    } else {
+      policyId = _createBucketPolicy(
+        payout,
+        premium,
+        lossProb,
+        expiration,
+        policyData,
+        quoteSignatureR,
+        quoteSignatureVS,
+        quoteValidUntil,
+        riskModule_,
+        bucketId
+      );
+    }
     // Increases the debt
     _increaseDebt(balanceBefore - _balance());
-    return createdPolicy;
+    return policyId;
+  }
+
+  /**
+   * @dev Creates several policies paid by this contract and increases the debt.
+   *
+   * Requirements:
+   * - Caller must have POLICY_CREATOR_ROLE
+   * - _balance() >= than the amount of the premium
+   *
+   */
+  function newPoliciesInBatchWithRm(
+    uint256[] memory payout,
+    uint256[] memory premium,
+    uint256[] memory lossProb,
+    uint40[] memory expiration,
+    bytes32[] memory policyData,
+    bytes32[] memory quoteSignatureR,
+    bytes32[] memory quoteSignatureVS,
+    uint40[] memory quoteValidUntil,
+    address[] memory riskModules,
+    uint256[] memory bucketId
+  ) external onlyRole(POLICY_CREATOR_ROLE) {
+    uint256 balanceBefore = _balance();
+
+    for (uint256 i = 0; i < payout.length; i++) {
+      if (bucketId[i] == type(uint256).max) {
+        SignedQuoteRiskModule(riskModules[i]).newPolicy(
+          payout[i],
+          premium[i],
+          lossProb[i],
+          expiration[i],
+          address(this),
+          policyData[i],
+          quoteSignatureR[i],
+          quoteSignatureVS[i],
+          quoteValidUntil[i]
+        );
+      } else {
+        _createBucketPolicy(
+          payout[i],
+          premium[i],
+          lossProb[i],
+          expiration[i],
+          policyData[i],
+          quoteSignatureR[i],
+          quoteSignatureVS[i],
+          quoteValidUntil[i],
+          riskModules[i],
+          bucketId[i]
+        );
+      }
+    }
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
   }
 
   /**
@@ -287,47 +386,6 @@ contract ERC4626CashFlowLender is
     uint40 quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
-    policyId = riskModule().newPolicy(
-      payout,
-      premium,
-      lossProb,
-      expiration,
-      address(this),
-      policyData,
-      quoteSignatureR,
-      quoteSignatureVS,
-      quoteValidUntil
-    );
-    // Increases the debt
-    _increaseDebt(balanceBefore - _balance());
-    return policyId;
-  }
-
-  /**
-   * @dev Creates a new policy paid by this contract and increases the debt. See
-   * {SignedQuoteRiskModule.newPolicyPaidByHolder}
-   *
-   * Requirements:
-   * - Caller must have POLICY_CREATOR_ROLE
-   * - _balance() >= than the amount of the premium
-   *
-   */
-  function newPolicyPaidByHolder(
-    uint256 payout,
-    uint256 premium,
-    uint256 lossProb,
-    uint40 expiration,
-    address, // onBehalfOf is ignored
-    bytes32 policyData,
-    bytes32 quoteSignatureR,
-    bytes32 quoteSignatureVS,
-    uint40 quoteValidUntil
-  ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
-    uint256 balanceBefore = _balance();
-    /**
-     * Calls newPolicy instead of newPolicyPaidByHolder because customer == msg.sender. We just keep this method
-     * to work as a no-code change replacement of the SignedQuoteRiskModule
-     */
     policyId = riskModule().newPolicy(
       payout,
       premium,
