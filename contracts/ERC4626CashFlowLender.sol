@@ -233,6 +233,7 @@ contract ERC4626CashFlowLender is
   }
 
   function _createBucketPolicy(
+    address riskModule_,
     uint256 payout,
     uint256 premium,
     uint256 lossProb,
@@ -242,7 +243,6 @@ contract ERC4626CashFlowLender is
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
     uint40 quoteValidUntil,
-    address riskModule_,
     uint256 bucketId
   ) internal returns (uint256 policyId) {
     policyId = SignedBucketRiskModule(riskModule_).newPolicy(
@@ -269,6 +269,7 @@ contract ERC4626CashFlowLender is
    *
    */
   function newPolicyWithRm(
+    address riskModule_,
     uint256 payout,
     uint256 premium,
     uint256 lossProb,
@@ -278,7 +279,6 @@ contract ERC4626CashFlowLender is
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
     uint40 quoteValidUntil,
-    address riskModule_,
     uint256 bucketId
   ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
@@ -296,6 +296,7 @@ contract ERC4626CashFlowLender is
       );
     } else {
       policyId = _createBucketPolicy(
+        riskModule_,
         payout,
         premium,
         lossProb,
@@ -305,7 +306,6 @@ contract ERC4626CashFlowLender is
         quoteSignatureR,
         quoteSignatureVS,
         quoteValidUntil,
-        riskModule_,
         bucketId
       );
     }
@@ -323,6 +323,7 @@ contract ERC4626CashFlowLender is
    *
    */
   function newPoliciesInBatchWithRm(
+    address[] memory riskModules,
     uint256[] memory payout,
     uint256[] memory premium,
     uint256[] memory lossProb,
@@ -331,7 +332,6 @@ contract ERC4626CashFlowLender is
     bytes32[] memory quoteSignatureR,
     bytes32[] memory quoteSignatureVS,
     uint40[] memory quoteValidUntil,
-    address[] memory riskModules,
     uint256[] memory bucketId
   ) external onlyRole(POLICY_CREATOR_ROLE) {
     uint256 balanceBefore = _balance();
@@ -351,6 +351,7 @@ contract ERC4626CashFlowLender is
         );
       } else {
         _createBucketPolicy(
+          riskModules[i],
           payout[i],
           premium[i],
           lossProb[i],
@@ -360,7 +361,6 @@ contract ERC4626CashFlowLender is
           quoteSignatureR[i],
           quoteSignatureVS[i],
           quoteValidUntil[i],
-          riskModules[i],
           bucketId[i]
         );
       }
