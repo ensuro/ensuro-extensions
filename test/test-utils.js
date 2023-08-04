@@ -32,7 +32,47 @@ function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
   );
 }
 
-function makeBatchParams(policyParams, signatures) {
+async function defaultBucketPolicyParams({
+  rmAddress,
+  payout,
+  premium,
+  lossProb,
+  expiration,
+  policyData,
+  bucketId,
+  validUntil,
+}) {
+  const now = await helpers.time.latest();
+  return {
+    rmAddress,
+    payout: payout || _A(1000),
+    premium: premium || ethers.constants.MaxUint256,
+    lossProb: lossProb || _W(0.1),
+    expiration: expiration || now + 3600 * 24 * 30,
+    policyData: policyData || hre.ethers.utils.hexlify(hre.ethers.utils.randomBytes(32)),
+    bucketId: bucketId || 0,
+    validUntil: validUntil || now + 3600 * 24 * 30,
+  };
+}
+
+function newBucketPolicy(cfl, rm, sender, policyParams, onBehalfOf, signature, method) {
+  if (sender !== undefined) cfl = cfl.connect(sender);
+  return cfl[method || "newPolicyWithRm"](
+    policyParams.payout,
+    policyParams.premium,
+    policyParams.lossProb,
+    policyParams.expiration,
+    onBehalfOf.address,
+    policyParams.policyData,
+    signature.r,
+    signature._vs,
+    policyParams.validUntil,
+    rm.address,
+    policyParams.bucketId
+  );
+}
+
+function makeBatchParams(policyParams, signatures, rm) {
   const payout = policyParams.map((pp) => pp.payout);
   const premium = policyParams.map((pp) => pp.premium);
   const lossProb = policyParams.map((pp) => pp.lossProb);
@@ -41,11 +81,30 @@ function makeBatchParams(policyParams, signatures) {
   const quoteSignatureR = signatures.map((s) => s.r);
   const quoteSignatureVS = signatures.map((s) => s._vs);
   const validUntil = policyParams.map((pp) => pp.validUntil);
-  return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];
+  if (rm) {
+    const bucketId = policyParams.map((pp) => pp.bucketId);
+    const riskModules = policyParams.map((pp) => rm.address);
+    return [
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      policyData,
+      quoteSignatureR,
+      quoteSignatureVS,
+      validUntil,
+      riskModules,
+      bucketId,
+    ];
+  } else {
+    return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];
+  }
 }
 
 module.exports = {
   newPolicy,
   defaultPolicyParams,
   makeBatchParams,
+  defaultBucketPolicyParams,
+  newBucketPolicy,
 };

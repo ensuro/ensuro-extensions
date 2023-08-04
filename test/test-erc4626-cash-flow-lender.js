@@ -5,6 +5,7 @@ const {
   accessControlMessage,
   makeQuoteMessage,
   makeSignedQuote,
+  makeBucketQuoteMessage,
 } = require("@ensuro/core/js/utils");
 const {
   initCurrency,
@@ -13,9 +14,16 @@ const {
   addRiskModule,
   addEToken,
 } = require("@ensuro/core/js/test-utils");
-const { newPolicy, defaultPolicyParams, makeBatchParams } = require("./test-utils");
+const {
+  newPolicy,
+  defaultPolicyParams,
+  makeBatchParams,
+  defaultBucketPolicyParams,
+  newBucketPolicy,
+} = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+const { MaxUint256 } = hre.ethers.constants;
 
 const { ethers } = hre;
 const { AddressZero } = ethers.constants;
@@ -82,6 +90,25 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.grantRole(await erc4626cfl.GUARDIAN_ROLE(), guardian.address);
 
     return { etk, premiumsAccount, rm, pool, accessManager, currency, erc4626cfl };
+  }
+
+  async function deployBucketRmFixture() {
+    const { pool, premiumsAccount, erc4626cfl, accessManager, ...others } = await helpers.loadFixture(
+      deployPoolFixture
+    );
+    // Setup the bucket risk module
+    const SignedBucketRiskModule = await hre.ethers.getContractFactory("SignedBucketRiskModule");
+    const bucketRm = await addRiskModule(pool, premiumsAccount, SignedBucketRiskModule, {
+      collRatio: "1.0",
+      extraConstructorArgs: [true],
+    });
+
+    await accessManager.grantComponentRole(bucketRm.address, await bucketRm.PRICER_ROLE(), signer.address);
+
+    await accessManager.grantComponentRole(bucketRm.address, await bucketRm.RESOLVER_ROLE(), erc4626cfl.address);
+    await accessManager.grantComponentRole(bucketRm.address, await bucketRm.PRICER_ROLE(), erc4626cfl.address);
+
+    return { bucketRm, erc4626cfl, pool, accessManager, premiumsAccount, ...others };
   }
 
   it("ERC4626CashFlowLender init", async () => {
@@ -907,5 +934,211 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.maxRedeem(lp2.address)).to.be.equal(_A(400));
 
     expect(await currency.balanceOf(lp2.address)).to.be.equal(_A(9700)); // 10k initial - 500 deposit + 100 redeem + 100 shares
+  });
+
+  it("SignedBucketRiskModule  - Rejects if called by unauthorized user", async () => {
+    const { erc4626cfl, bucketRm } = await helpers.loadFixture(deployBucketRmFixture);
+
+    let policyParams = await defaultBucketPolicyParams({ rmAddress: bucketRm.address });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, cust, signature)).to.be.revertedWith(
+      accessControlMessage(cust.address, null, "POLICY_CREATOR_ROLE")
+    );
+
+    policyParams = await defaultBucketPolicyParams({ rmAddress: bucketRm.address, bucketId: MaxUint256 });
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, cust, signature)).to.be.revertedWith(
+      accessControlMessage(cust.address, null, "POLICY_CREATOR_ROLE")
+    );
+  });
+
+  it("With bucketID == MaxUint256 creates policy with SignedQuoteRiskModule", async () => {
+    const { pool, rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultBucketPolicyParams({
+      rmAddress: rm.address,
+      premium: _A(200),
+      bucketId: MaxUint256,
+    });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    await expect(newBucketPolicy(erc4626cfl, rm, creator, policyParams, cust, signature)).to.be.revertedWith(
+      "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
+    );
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
+    await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
+    const tx = await newBucketPolicy(erc4626cfl, rm, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    await expect(erc4626cfl.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(800))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "RESOLVER_ROLE")
+    );
+
+    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+  });
+
+  it("With bucketID != MaxUint256 creates policy with SignedBucketRiskModule", async () => {
+    const { pool, bucketRm, erc4626cfl, currency } = await helpers.loadFixture(deployBucketRmFixture);
+    const policyParams = await defaultBucketPolicyParams({
+      rmAddress: bucketRm.address,
+      premium: _A(200),
+    });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature)).to.be.revertedWith(
+      "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
+    );
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
+    await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
+    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    await expect(erc4626cfl.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(800))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "RESOLVER_ROLE")
+    );
+
+    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+  });
+
+  it("Create policies in batch with BucketId == MaxUint256 - SignedQuoteRiskModule ", async () => {
+    const { rm, pool, currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = [
+      await defaultBucketPolicyParams({
+        rmAddress: rm.address,
+        premium: _A(200),
+        payout: _A(900),
+        bucketId: MaxUint256,
+      }),
+      await defaultBucketPolicyParams({
+        rmAddress: rm.address,
+        premium: _A(300),
+        payout: _A(950),
+        bucketId: MaxUint256,
+        policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3236",
+      }),
+      await defaultBucketPolicyParams({
+        rmAddress: rm.address,
+        premium: _A(100),
+        payout: _A(800),
+        bucketId: MaxUint256,
+        policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3237",
+      }),
+    ];
+    const quoteMessages = policyParams.map(makeQuoteMessage);
+    const signatures = await Promise.all(
+      quoteMessages.map(async (qm) =>
+        hre.ethers.utils.splitSignature(await signer.signMessage(hre.ethers.utils.arrayify(qm)))
+      )
+    );
+    await expect(
+      erc4626cfl.connect(anon).newPoliciesInBatchWithRm(...makeBatchParams(policyParams, signatures, rm))
+    ).to.be.revertedWith(accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE"));
+
+    await currency.connect(owner).transfer(erc4626cfl.address, _A(800));
+
+    const tx = await erc4626cfl
+      .connect(creator)
+      .newPoliciesInBatchWithRm(...makeBatchParams(policyParams, signatures, rm));
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(200)); // 600 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(600));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(800));
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    // for each log in the transaction receipt
+    const newPolicyEvts = [];
+    for (const log of receipt.logs) {
+      let parsedLog;
+      try {
+        parsedLog = pool.interface.parseLog(log);
+      } catch (error) {
+        continue;
+      }
+      if (parsedLog.name == "NewPolicy") {
+        newPolicyEvts.push(parsedLog);
+      }
+    }
+
+    expect(newPolicyEvts.length).to.be.equal(3);
+    expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(erc4626cfl.address);
+    expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
+  });
+
+  it("Create policies in batch with BucketId == MaxUint256 - SignedBucketRiskModule ", async () => {
+    const { pool, bucketRm, erc4626cfl, currency } = await helpers.loadFixture(deployBucketRmFixture);
+    const policyParams = [
+      await defaultBucketPolicyParams({
+        rmAddress: bucketRm.address,
+        premium: _A(200),
+        payout: _A(900),
+      }),
+      await defaultBucketPolicyParams({
+        rmAddress: bucketRm.address,
+        premium: _A(300),
+        payout: _A(950),
+        policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3236",
+      }),
+      await defaultBucketPolicyParams({
+        rmAddress: bucketRm.address,
+        premium: _A(100),
+        payout: _A(800),
+        policyData: "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3237",
+      }),
+    ];
+    const quoteMessages = policyParams.map(makeBucketQuoteMessage);
+    const signatures = await Promise.all(
+      quoteMessages.map(async (qm) =>
+        hre.ethers.utils.splitSignature(await signer.signMessage(hre.ethers.utils.arrayify(qm)))
+      )
+    );
+    await expect(
+      erc4626cfl.connect(anon).newPoliciesInBatchWithRm(...makeBatchParams(policyParams, signatures, bucketRm))
+    ).to.be.revertedWith(accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE"));
+
+    await currency.connect(owner).transfer(erc4626cfl.address, _A(800));
+
+    const tx = await erc4626cfl
+      .connect(creator)
+      .newPoliciesInBatchWithRm(...makeBatchParams(policyParams, signatures, bucketRm));
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(200)); // 600 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(600));
+    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(800));
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    // for each log in the transaction receipt
+    const newPolicyEvts = [];
+    for (const log of receipt.logs) {
+      let parsedLog;
+      try {
+        parsedLog = pool.interface.parseLog(log);
+      } catch (error) {
+        continue;
+      }
+      if (parsedLog.name == "NewPolicy") {
+        newPolicyEvts.push(parsedLog);
+      }
+    }
+
+    expect(newPolicyEvts.length).to.be.equal(3);
+    expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(erc4626cfl.address);
+    expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
   });
 });
