@@ -1,3 +1,5 @@
+const hre = require("hardhat");
+
 /**
  * Chai test case wrapper for tests that require forking a live chain.
  *
@@ -9,6 +11,7 @@ exports.fork = {
     const skipForkTests = process.env.SKIP_FORK_TESTS === "true";
     const fullName = `[FORK ${blockNumber}] ${name}`;
 
+    // eslint-disable-next-line func-style
     const wrapped = async (...args) => {
       let alchemyUrl = process.env[alchemyUrlEnv];
       if (alchemyUrl === undefined) throw new Error(`Define envvar ${alchemyUrlEnv} for this test`);

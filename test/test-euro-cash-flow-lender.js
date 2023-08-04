@@ -1,28 +1,34 @@
 const { expect } = require("chai");
 const {
-  initCurrency,
-  deployPool,
-  deployPremiumsAccount,
   _W,
-  addRiskModule,
   amountFunction,
-  addEToken,
   getTransactionEvent,
   accessControlMessage,
   makeSignedQuote,
+} = require("@ensuro/core/js/utils");
+const {
+  initCurrency,
+  deployPool,
+  deployPremiumsAccount,
+  addRiskModule,
+  addEToken,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+
+const { ethers } = hre;
+
+const { AddressZero, MaxUint256 } = ethers.constants;
 const HOUR = 3600;
 const HALF_HOUR = HOUR / 2;
 
 describe("EuroCashFlowLender contract tests", function () {
   let _A, _P;
-  let lp, cust, signer, resolver, creator, anon, guardian;
+  let anon, creator, cust, guardian, lp, owner, resolver, signer;
 
   beforeEach(async () => {
-    [__, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
+    [owner, lp, cust, signer, resolver, creator, anon, owner, guardian] = await ethers.getSigners();
 
     _A = amountFunction(6);
     _P = amountFunction(8);
@@ -35,18 +41,18 @@ describe("EuroCashFlowLender contract tests", function () {
       [_A(5000), _A(500), _A(1000)]
     );
 
-    const pool = await deployPool(hre, {
+    const pool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
     });
     pool._A = _A;
 
-    const accessManager = await hre.ethers.getContractAt("AccessManager", await pool.access());
+    const accessManager = await ethers.getContractAt("AccessManager", await pool.access());
 
     // Setup the liquidity sources
     const etk = await addEToken(pool, {});
-    const premiumsAccount = await deployPremiumsAccount(hre, pool, { srEtkAddr: etk.address });
+    const premiumsAccount = await deployPremiumsAccount(pool, { srEtkAddr: etk.address });
 
     // Provide some liquidity
     await currency.connect(lp).approve(pool.address, _A(5000));
@@ -56,18 +62,18 @@ describe("EuroCashFlowLender contract tests", function () {
     await currency.connect(cust).approve(pool.address, _A(500));
 
     // Setup the risk module
-    const TrustfulRiskModule = await hre.ethers.getContractFactory("TrustfulRiskModule");
+    const TrustfulRiskModule = await ethers.getContractFactory("TrustfulRiskModule");
     const rm = await addRiskModule(pool, premiumsAccount, TrustfulRiskModule, {
       ensuroFee: 0.03,
     });
 
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
 
-    const PriceOracle = await hre.ethers.getContractFactory("AggregatorV3Mock");
+    const PriceOracle = await ethers.getContractFactory("AggregatorV3Mock");
     const assetOracle = await PriceOracle.deploy(8);
     assetOracle._P = _P;
 
-    const EuroCashFlowLender = await hre.ethers.getContractFactory("EuroCashFlowLender");
+    const EuroCashFlowLender = await ethers.getContractFactory("EuroCashFlowLender");
     const eurocfLender = await hre.upgrades.deployProxy(EuroCashFlowLender, [_W("1.05")], {
       kind: "uups",
       constructorArgs: [rm.address, assetOracle.address],
@@ -121,18 +127,18 @@ describe("EuroCashFlowLender contract tests", function () {
   it("Should not allow address(0) for the AssetOracle and RM", async () => {
     const { rm, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
-    const EuroCashFlowLender = await hre.ethers.getContractFactory("EuroCashFlowLender");
+    const EuroCashFlowLender = await ethers.getContractFactory("EuroCashFlowLender");
     await expect(
       hre.upgrades.deployProxy(EuroCashFlowLender, [cust.address, _W("1.05")], {
         kind: "uups",
-        constructorArgs: [hre.ethers.constants.AddressZero, assetOracle.address],
+        constructorArgs: [AddressZero, assetOracle.address],
       })
     ).to.be.revertedWith("EuroCashFlowLender: riskModule_ cannot be zero address");
 
     await expect(
       hre.upgrades.deployProxy(EuroCashFlowLender, [cust.address, _W("1.05")], {
         kind: "uups",
-        constructorArgs: [rm.address, hre.ethers.constants.AddressZero],
+        constructorArgs: [rm.address, AddressZero],
       })
     ).to.be.revertedWith("EuroCashFlowLender: assetOracle_ cannot be zero address");
   });
@@ -222,8 +228,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(800));
     await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -237,7 +241,7 @@ describe("EuroCashFlowLender contract tests", function () {
     const { pool, eurocfLender, premiumsAccount } = await helpers.loadFixture(deployPoolFixture);
 
     // Setup the risk module
-    const TrustfulRiskModule = await hre.ethers.getContractFactory("TrustfulRiskModule");
+    const TrustfulRiskModule = await ethers.getContractFactory("TrustfulRiskModule");
     const newImpl = await TrustfulRiskModule.deploy(pool.address, premiumsAccount.address);
 
     await expect(eurocfLender.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
@@ -254,8 +258,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -317,8 +319,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
@@ -339,8 +339,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - 3 * HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await expect(newPolicy(eurocfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
       "Price is older than tolerable"
@@ -348,26 +346,23 @@ describe("EuroCashFlowLender contract tests", function () {
   });
 
   it("Test only the owner can withdraw the funds", async () => {
-    const { rm, pool, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
+    const { rm, eurocfLender, currency, assetOracle } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rmAddress: rm.address, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams);
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(1000));
     let tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
-    let receipt = await tx.wait();
+    await tx.wait();
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(200));
-    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162")); // 1000 - (200 * 1.08919) = 782.162
 
     // Can't withdraw to zero address
-    await expect(eurocfLender.connect(owner).withdraw(_A(200), ethers.constants.AddressZero)).to.be.revertedWith(
+    await expect(eurocfLender.connect(owner).withdraw(_A(200), AddressZero)).to.be.revertedWith(
       "EuroCashFlowLender: destination cannot be the zero address"
     );
     // Try changing the customer with anon
@@ -381,12 +376,12 @@ describe("EuroCashFlowLender contract tests", function () {
 
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A("782.162") - _A(300));
 
-    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address))
+    await expect(eurocfLender.connect(owner).withdraw(MaxUint256, anon.address))
       .to.emit(eurocfLender, "Withdrawal")
       .withArgs(anon.address, _A("782.162") - _A(300));
     expect(await currency.balanceOf(eurocfLender.address)).to.be.equal(_A(0));
     // When no more funds, withdraw doesn't fails, just doesn't do anything
-    await expect(eurocfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).not.to.emit(
+    await expect(eurocfLender.connect(owner).withdraw(MaxUint256, anon.address)).not.to.emit(
       eurocfLender,
       "Withdrawal"
     );
@@ -437,8 +432,6 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const now = await helpers.time.latest();
     await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
-    let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender.address, _A(500));
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);

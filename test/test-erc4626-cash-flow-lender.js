@@ -1,27 +1,31 @@
 const { expect } = require("chai");
 const {
-  initCurrency,
-  deployPool,
-  deployPremiumsAccount,
-  addRiskModule,
   amountFunction,
-  addEToken,
   getTransactionEvent,
   accessControlMessage,
   makeQuoteMessage,
   makeSignedQuote,
+} = require("@ensuro/core/js/utils");
+const {
+  initCurrency,
+  deployPool,
+  deployPremiumsAccount,
+  addRiskModule,
+  addEToken,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams, makeBatchParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
+const { ethers } = hre;
+const { AddressZero } = ethers.constants;
+
 describe("ERC4626CashFlowLender contract tests", function () {
   let _A;
-  let lp, lp2, cust, signer, resolver, creator, anon, guardian;
-  const _tn = (testName) => `${testName}`;
+  let anon, changeRm, creator, cust, guardian, lp, lp2, owner, resolver, signer;
 
   beforeEach(async () => {
-    [__, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await hre.ethers.getSigners();
+    [, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -34,18 +38,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
       [_A(10000), _A(10000), _A(2000), _A(1000)]
     );
 
-    const pool = await deployPool(hre, {
+    const pool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
     });
     pool._A = _A;
 
-    const accessManager = await hre.ethers.getContractAt("AccessManager", await pool.access());
+    const accessManager = await ethers.getContractAt("AccessManager", await pool.access());
 
     // Setup the liquidity sources
     const etk = await addEToken(pool, {});
-    const premiumsAccount = await deployPremiumsAccount(hre, pool, { srEtkAddr: etk.address });
+    const premiumsAccount = await deployPremiumsAccount(pool, { srEtkAddr: etk.address });
 
     // Provide some liquidity
     await currency.connect(lp).approve(pool.address, _A(5000));
@@ -55,7 +59,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await currency.connect(cust).approve(pool.address, _A(500));
 
     // Setup the risk module
-    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const SignedQuoteRiskModule = await ethers.getContractFactory("SignedQuoteRiskModule");
     const rm = await addRiskModule(pool, premiumsAccount, SignedQuoteRiskModule, {
       ensuroFee: 0.03,
       extraConstructorArgs: [creationIsOpen],
@@ -63,7 +67,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
 
-    const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
+    const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
     const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, currency.address], {
       kind: "uups",
     });
@@ -91,15 +95,15 @@ describe("ERC4626CashFlowLender contract tests", function () {
   it("Should not allow address(0) for the RM and Asset", async () => {
     const { rm, currency } = await helpers.loadFixture(deployPoolFixture);
 
-    const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
+    const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [hre.ethers.constants.AddressZero, currency.address], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [AddressZero, currency.address], {
         kind: "uups",
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: riskModule_ cannot be zero address");
 
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, hre.ethers.constants.AddressZero], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, AddressZero], {
         kind: "uups",
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: asset_ cannot be zero address");
@@ -108,7 +112,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
   it("Only CHANGE_RM_ROLE can change the RM", async () => {
     const { rm, pool, premiumsAccount, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
 
-    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const SignedQuoteRiskModule = await ethers.getContractFactory("SignedQuoteRiskModule");
     const newImpl = await SignedQuoteRiskModule.deploy(pool.address, premiumsAccount.address, false);
 
     expect(await erc4626cfl.riskModule()).to.equal(rm.address);
@@ -116,7 +120,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await expect(erc4626cfl.connect(anon).setRiskModule(newImpl.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "CHANGE_RM_ROLE")
     );
-    await expect(erc4626cfl.connect(changeRm).setRiskModule(hre.ethers.constants.AddressZero)).to.be.revertedWith(
+    await expect(erc4626cfl.connect(changeRm).setRiskModule(AddressZero)).to.be.revertedWith(
       "ERC4626CashFlowLender: riskModule_ cannot be zero address"
     );
 
@@ -156,8 +160,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
   });
 
-  ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) => {
-    it(_tn(`Rejects if called by unauthorized user - ${method}`), async () => {
+  ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) =>
+    it(`Rejects if called by unauthorized user - ${method}`, async () => {
       const { rm, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
       const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
       const signature = await makeSignedQuote(signer, policyParams);
@@ -165,8 +169,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
       await expect(newPolicy(erc4626cfl, anon, policyParams, cust, signature, method)).to.be.revertedWith(
         accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE")
       );
-    });
-  });
+    })
+  );
 
   it("Address without LP_ROLE can't withdraw/redeem", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
@@ -189,7 +193,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const { pool, erc4626cfl, premiumsAccount } = await helpers.loadFixture(deployPoolFixture);
 
     // Setup the risk module
-    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const SignedQuoteRiskModule = await ethers.getContractFactory("SignedQuoteRiskModule");
     const newImpl = await SignedQuoteRiskModule.deploy(pool.address, premiumsAccount.address, false);
 
     await expect(erc4626cfl.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
@@ -548,16 +552,16 @@ describe("ERC4626CashFlowLender contract tests", function () {
   it("New RM must belong to the same pool", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
-    const otherPool = await deployPool(hre, {
+    const otherPool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x87c47c9a5a2aa74ae714857d64911d9a091c25b1", // Other Random address
     });
     otherPool._A = _A;
 
-    const premiumsAccount = await deployPremiumsAccount(hre, otherPool, {}, false);
+    const premiumsAccount = await deployPremiumsAccount(otherPool, {}, false);
 
-    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const SignedQuoteRiskModule = await ethers.getContractFactory("SignedQuoteRiskModule");
     const newImpl = await SignedQuoteRiskModule.deploy(otherPool.address, premiumsAccount.address, false);
 
     expect(await erc4626cfl.riskModule()).to.equal(rm.address);

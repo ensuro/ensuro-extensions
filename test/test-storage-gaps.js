@@ -1,13 +1,14 @@
+const hre = require("hardhat");
 const { expect } = require("chai");
 
-const { getStorageLayout } = require("@ensuro/core/js/test-utils");
+const { getStorageLayout } = require("@ensuro/core/js/utils");
 
 describe("Storage Gaps", () => {
   const contracts = ["CashFlowLender", "QuadrataWhitelist", "MultiRMCashFlowLender"];
 
   for (const contract of contracts) {
     it(`${contract} has a proper storage gap`, async () => {
-      const { storage, types } = await getStorageLayout(`contracts/${contract}.sol`, contract);
+      const { storage, types } = await getStorageLayout(hre, `contracts/${contract}.sol`, contract);
 
       const gap = storage[storage.length - 1];
 

@@ -1,30 +1,33 @@
 const { expect } = require("chai");
-const _ = require("lodash");
+const {
+  _W,
+  amountFunction,
+  getTransactionEvent,
+  accessControlMessage,
+  makeQuoteMessage,
+} = require("@ensuro/core/js/utils");
 const {
   initCurrency,
   deployPool,
   deployPremiumsAccount,
-  _W,
   addRiskModule,
-  amountFunction,
   addEToken,
-  getTransactionEvent,
-  accessControlMessage,
-  makeQuoteMessage,
 } = require("@ensuro/core/js/test-utils");
 const { newPolicy, defaultPolicyParams, makeBatchParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
+const { ethers } = hre;
+const { MaxUint256, AddressZero } = ethers.constants;
+
 describe("CashFlowLender contract tests", function () {
-  let _A, _P;
-  let lp, cust, signer, resolver, creator, anon, guardian;
+  let _A;
+  let anon, creator, cust, guardian, lp, owner, resolver, signer;
 
   beforeEach(async () => {
-    [__, lp, cust, signer, resolver, creator, anon, owner, guardian] = await hre.ethers.getSigners();
+    [, lp, cust, signer, resolver, creator, anon, owner, guardian] = await ethers.getSigners();
 
     _A = amountFunction(6);
-    _P = amountFunction(8);
   });
 
   async function deployPoolFixture(creationIsOpen) {
@@ -35,18 +38,18 @@ describe("CashFlowLender contract tests", function () {
       [_A(5000), _A(500), _A(1000)]
     );
 
-    const pool = await deployPool(hre, {
+    const pool = await deployPool({
       currency: currency.address,
       grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
       treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
     });
     pool._A = _A;
 
-    const accessManager = await hre.ethers.getContractAt("AccessManager", await pool.access());
+    const accessManager = await ethers.getContractAt("AccessManager", await pool.access());
 
     // Setup the liquidity sources
     const etk = await addEToken(pool, {});
-    const premiumsAccount = await deployPremiumsAccount(hre, pool, { srEtkAddr: etk.address });
+    const premiumsAccount = await deployPremiumsAccount(pool, { srEtkAddr: etk.address });
 
     // Provide some liquidity
     await currency.connect(lp).approve(pool.address, _A(5000));
@@ -56,7 +59,7 @@ describe("CashFlowLender contract tests", function () {
     await currency.connect(cust).approve(pool.address, _A(500));
 
     // Setup the risk module
-    const SignedQuoteRiskModule = await hre.ethers.getContractFactory("SignedQuoteRiskModule");
+    const SignedQuoteRiskModule = await ethers.getContractFactory("SignedQuoteRiskModule");
     const rm = await addRiskModule(pool, premiumsAccount, SignedQuoteRiskModule, {
       ensuroFee: 0.03,
       extraConstructorArgs: [creationIsOpen],
@@ -69,7 +72,7 @@ describe("CashFlowLender contract tests", function () {
 
   async function deployPoolAndCFLFixture(creationIsOpen, contractClass = "CashFlowLender") {
     const { rm, accessManager, ...others } = await deployPoolFixture(creationIsOpen);
-    const CashFlowLender = await hre.ethers.getContractFactory(contractClass);
+    const CashFlowLender = await ethers.getContractFactory(contractClass);
     const cfLender = await hre.upgrades.deployProxy(CashFlowLender, [cust.address], {
       kind: "uups",
       constructorArgs: [rm.address],
@@ -96,7 +99,7 @@ describe("CashFlowLender contract tests", function () {
 
   async function deployPoolAndCFLFixtureUpgradeToMultiRM() {
     const { cfLender, rm, ...others } = await deployPoolAndCFLFixture();
-    const MultiRMCashFlowLender = await hre.ethers.getContractFactory("MultiRMCashFlowLender");
+    const MultiRMCashFlowLender = await ethers.getContractFactory("MultiRMCashFlowLender");
     const newImpl = await MultiRMCashFlowLender.deploy(rm.address);
     await expect(cfLender.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "GUARDIAN_ROLE")
@@ -109,7 +112,7 @@ describe("CashFlowLender contract tests", function () {
     let { cfLender, rm, SignedQuoteRiskModule, pool, premiumsAccount, accessManager, ...others } =
       await deployPoolAndCFLFixtureUpgradeToMultiRM();
     // Bind cfLender variable with the MultiRMCashFlowLender ABI
-    cfLender = await hre.ethers.getContractAt("MultiRMCashFlowLender", cfLender.address);
+    cfLender = await ethers.getContractAt("MultiRMCashFlowLender", cfLender.address);
     const origRM = rm;
     // Setup a new risk module
     rm = await addRiskModule(pool, premiumsAccount, SignedQuoteRiskModule, {
@@ -127,7 +130,7 @@ describe("CashFlowLender contract tests", function () {
 
   async function deployPoolAndERC4626CFLFixture() {
     const { rm, accessManager, currency, ...others } = await deployPoolFixture();
-    const ERC4626CashFlowLender = await hre.ethers.getContractFactory("ERC4626CashFlowLender");
+    const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
     const cfLender = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, currency.address], {
       kind: "uups",
     });
@@ -151,7 +154,9 @@ describe("CashFlowLender contract tests", function () {
     { name: "MultiRMCashFlowLender - RM Changed", fixture: deployPoolAndCFLFixtureUpgradeToMultiRMChangeRM },
   ];
 
+  // eslint-disable-next-line array-callback-return
   variants.map((variant) => {
+    // eslint-disable-next-line func-style
     const _tn = (testName) => `${testName} - ${variant.name}`;
 
     it(_tn("Creates a policy paid by the CashFlowLender"), async () => {
@@ -255,7 +260,7 @@ describe("CashFlowLender contract tests", function () {
       expect(await currency.balanceOf(cust.address)).to.be.equal(_A(500 + 800 - 600)); // 500 initial + 600 (800-600)
     });
 
-    ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) => {
+    ["newPolicy", "newPolicyFull", "newPolicyPaidByHolder"].map((method) =>
       it(_tn(`Rejects if called by unauthorized user - ${method}`), async () => {
         const { rm, cfLender } = await helpers.loadFixture(variant.fixture);
         const policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
@@ -264,8 +269,8 @@ describe("CashFlowLender contract tests", function () {
         await expect(newPolicy(cfLender, anon, policyParams, cust, signature, method)).to.be.revertedWith(
           accessControlMessage(anon.address, null, "POLICY_CREATOR_ROLE")
         );
-      });
-    });
+      })
+    );
 
     it(_tn("Rejects if resolved by unauthorized user"), async () => {
       const { rm, currency, pool, cfLender } = await helpers.loadFixture(variant.fixture);
@@ -432,22 +437,21 @@ describe("CashFlowLender contract tests", function () {
       await expect(cfLender.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(200)))
         .to.emit(cfLender, "DebtChanged")
         .withArgs(_A(0));
-      await expect(cfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address))
+      await expect(cfLender.connect(owner).withdraw(MaxUint256, anon.address))
         .to.emit(cfLender, "Withdrawal")
         .withArgs(anon.address, _A(700));
       expect(await currency.balanceOf(anon.address)).to.be.equal(_A(1000));
       expect(await currency.balanceOf(cfLender.address)).to.be.equal(_A(0));
       // When no more funds, withdraw doesn't fails, just doesn't do anything
-      await expect(cfLender.connect(owner).withdraw(ethers.constants.MaxUint256, anon.address)).not.to.emit(
-        cfLender,
-        "Withdrawal"
-      );
+      await expect(cfLender.connect(owner).withdraw(MaxUint256, anon.address)).not.to.emit(cfLender, "Withdrawal");
     });
   });
 
   const allCFLs = variants.concat([{ name: "ERC4626CashFlowLender", fixture: deployPoolAndERC4626CFLFixture }]);
 
+  // eslint-disable-next-line array-callback-return
   allCFLs.map((variant) => {
+    // eslint-disable-next-line func-style
     const _tn = (testName) => `${testName} - ${variant.name}`;
 
     it(_tn("Only policy pool can call onPayoutReceived"), async () => {
@@ -584,7 +588,7 @@ describe("CashFlowLender contract tests", function () {
     expect(await cfLender.connect(owner).riskModule()).to.be.equal(newRM.address);
 
     // Setting back address(0) is also possible, then goes back to original RM
-    await expect(cfLender.connect(owner).setActiveRiskModule(ethers.constants.AddressZero))
+    await expect(cfLender.connect(owner).setActiveRiskModule(AddressZero))
       .to.emit(cfLender, "ActiveRiskModuleChanged")
       .withArgs(rm.address);
     expect(await cfLender.connect(owner).riskModule()).to.be.equal(rm.address);
