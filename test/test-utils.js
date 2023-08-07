@@ -63,7 +63,6 @@ function newBucketPolicy(cfl, rm, sender, policyParams, onBehalfOf, signature, m
     policyParams.premium,
     policyParams.lossProb,
     policyParams.expiration,
-    onBehalfOf.address,
     policyParams.policyData,
     policyParams.bucketId,
     signature.r,
