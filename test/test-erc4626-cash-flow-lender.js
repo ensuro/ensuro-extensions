@@ -1178,6 +1178,46 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(erc4626cfl.address);
     expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
   });
+
+  it("Set policyHolder", async () => {
+    const { erc4626cfl } = await helpers.loadFixture(deployBucketRmFixture);
+
+    expect(await erc4626cfl.policyHolder()).to.be.equal(ethers.constants.AddressZero);
+
+    await expect(erc4626cfl.connect(anon).setPolicyHolder(cust.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "GUARDIAN_ROLE")
+    );
+
+    await erc4626cfl.connect(guardian).setPolicyHolder(cust.address);
+
+    expect(await erc4626cfl.policyHolder()).to.be.equal(cust.address);
+  });
+
+  it("Check policy owner with policyHolder", async () => {
+    const { pool, bucketRm, erc4626cfl, currency } = await helpers.loadFixture(deployBucketRmFixture);
+
+    /* Set policyHolder */
+    await erc4626cfl.connect(guardian).setPolicyHolder(cust.address);
+    expect(await erc4626cfl.policyHolder()).to.be.equal(cust.address);
+
+    const policyParams = await defaultBucketPolicyParams({
+      rmAddress: bucketRm.address,
+      premium: _A(200),
+    });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
+    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+
+    /* policy owner is policyHolder = cust */
+    expect(await pool.ownerOf(policyId)).to.be.equal(cust.address);
+  });
 });
 
 function bucketParameters({ moc, jrCollRatio, collRatio, ensuroPpFee, ensuroCocFee, jrRoc, srRoc }) {

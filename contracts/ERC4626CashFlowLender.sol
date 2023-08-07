@@ -145,6 +145,13 @@ contract ERC4626CashFlowLender is
     return _riskModule;
   }
 
+  /**
+   * @dev Returns the address of the `policyHolder`.
+   */
+  function policyHolder() public view virtual returns (address) {
+    return _policyHolder;
+  }
+
   function setRiskModule(SignedQuoteRiskModule riskModule_) external onlyRole(CHANGE_RM_ROLE) {
     require(
       address(riskModule_) != address(0),
