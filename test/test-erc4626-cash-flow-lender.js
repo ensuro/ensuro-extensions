@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const {
+  _W,
   amountFunction,
   getTransactionEvent,
   accessControlMessage,
@@ -1013,6 +1014,42 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
   });
 
+  it("With bucketID != MaxUint256 && bucketId != 0 creates policy with SignedBucketRiskModule", async () => {
+    const { pool, bucketRm, erc4626cfl, currency } = await helpers.loadFixture(deployBucketRmFixture);
+    const bucket = bucketParameters({});
+    await expect(bucketRm.setBucketParams(1234, bucket.asParams()))
+      .to.emit(bucketRm, "NewBucket")
+      .withArgs(1234, bucket.asParams());
+
+    const policyParams = await defaultBucketPolicyParams({
+      rmAddress: bucketRm.address,
+      premium: _A(200),
+      bucketId: 1234,
+    });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature)).to.be.revertedWith(
+      "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
+    );
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
+    await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
+    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl.address);
+
+    await expect(erc4626cfl.connect(anon).resolvePolicy(newPolicyEvt.args[1], _A(800))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "RESOLVER_ROLE")
+    );
+
+    await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+  });
+
   it("Create policies in batch with BucketId == MaxUint256 - SignedQuoteRiskModule ", async () => {
     const { rm, pool, currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
     const policyParams = [
@@ -1142,3 +1179,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
   });
 });
+
+function bucketParameters({ moc, jrCollRatio, collRatio, ensuroPpFee, ensuroCocFee, jrRoc, srRoc }) {
+  return {
+    moc: moc || _W("1.1"),
+    jrCollRatio: jrCollRatio || _W("0.1"),
+    collRatio: collRatio || _W("0.2"),
+    ensuroPpFee: ensuroPpFee || _W("0.05"),
+    ensuroCocFee: ensuroCocFee || _W("0.2"),
+    jrRoc: jrRoc || _W("0.1"),
+    srRoc: srRoc || _W("0.2"),
+    asParams: function () {
+      return [this.moc, this.jrCollRatio, this.collRatio, this.ensuroPpFee, this.ensuroCocFee, this.jrRoc, this.srRoc];
+    },
+  };
+}

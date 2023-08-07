@@ -65,10 +65,10 @@ function newBucketPolicy(cfl, rm, sender, policyParams, onBehalfOf, signature, m
     policyParams.expiration,
     onBehalfOf.address,
     policyParams.policyData,
+    policyParams.bucketId,
     signature.r,
     signature._vs,
-    policyParams.validUntil,
-    policyParams.bucketId
+    policyParams.validUntil
   );
 }
 
@@ -91,10 +91,10 @@ function makeBatchParams(policyParams, signatures, rm) {
       lossProb,
       expiration,
       policyData,
+      bucketId,
       quoteSignatureR,
       quoteSignatureVS,
       validUntil,
-      bucketId,
     ];
   }
   return [payout, premium, lossProb, expiration, policyData, quoteSignatureR, quoteSignatureVS, validUntil];

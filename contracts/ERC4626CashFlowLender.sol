@@ -240,10 +240,10 @@ contract ERC4626CashFlowLender is
     uint40 expiration,
     address, // onBehalfOf is ignored
     bytes32 policyData,
+    uint256 bucketId,
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
-    uint40 quoteValidUntil,
-    uint256 bucketId
+    uint40 quoteValidUntil
   ) internal returns (uint256 policyId) {
     policyId = SignedBucketRiskModule(riskModule_).newPolicy(
       payout,
@@ -263,6 +263,9 @@ contract ERC4626CashFlowLender is
   /**
    * @dev Creates a new policy paid by this contract and increases the debt.
    *
+   * If it is a RiskModule without bucket, send type(uint256).max
+   * If it is a RiskModule with bucket, send the bucketId
+   *
    * Requirements:
    * - Caller must have POLICY_CREATOR_ROLE
    * - _balance() >= than the amount of the premium
@@ -276,10 +279,10 @@ contract ERC4626CashFlowLender is
     uint40 expiration,
     address, // onBehalfOf is ignored
     bytes32 policyData,
+    uint256 bucketId,
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
-    uint40 quoteValidUntil,
-    uint256 bucketId
+    uint40 quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) returns (uint256 policyId) {
     uint256 balanceBefore = _balance();
     if (bucketId == type(uint256).max) {
@@ -303,10 +306,10 @@ contract ERC4626CashFlowLender is
         expiration,
         address(this),
         policyData,
+        bucketId,
         quoteSignatureR,
         quoteSignatureVS,
-        quoteValidUntil,
-        bucketId
+        quoteValidUntil
       );
     }
     // Increases the debt
@@ -316,6 +319,9 @@ contract ERC4626CashFlowLender is
 
   /**
    * @dev Creates several policies paid by this contract and increases the debt.
+   *
+   * If it is a RiskModule without bucket, send type(uint256).max
+   * If it is a RiskModule with bucket, send the bucketId
    *
    * Requirements:
    * - Caller must have POLICY_CREATOR_ROLE
@@ -329,10 +335,10 @@ contract ERC4626CashFlowLender is
     uint256[] memory lossProb,
     uint40[] memory expiration,
     bytes32[] memory policyData,
+    uint256[] memory bucketId,
     bytes32[] memory quoteSignatureR,
     bytes32[] memory quoteSignatureVS,
-    uint40[] memory quoteValidUntil,
-    uint256[] memory bucketId
+    uint40[] memory quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) {
     uint256 balanceBefore = _balance();
 
@@ -358,10 +364,10 @@ contract ERC4626CashFlowLender is
           expiration[i],
           address(this),
           policyData[i],
+          bucketId[i],
           quoteSignatureR[i],
           quoteSignatureVS[i],
-          quoteValidUntil[i],
-          bucketId[i]
+          quoteValidUntil[i]
         );
       }
     }
