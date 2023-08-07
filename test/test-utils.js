@@ -55,7 +55,7 @@ async function defaultBucketPolicyParams({
   };
 }
 
-function newBucketPolicy(cfl, rm, sender, policyParams, onBehalfOf, signature, method) {
+function newBucketPolicy(cfl, rm, sender, policyParams, signature, method) {
   if (sender !== undefined) cfl = cfl.connect(sender);
   return cfl[method || "newPolicyWithRm"](
     rm.address,

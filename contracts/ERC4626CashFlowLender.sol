@@ -512,14 +512,14 @@ contract ERC4626CashFlowLender is
    * @dev Sets the address of the `policyHolder`.
    *
    * Requirements:
-   * - Caller has GUARDIAN_ROLE
+   * - Caller has CUSTOMER_ROLE
    *
    * Emits:
    * - PolicyHolderChanged
    *
    * @param policyHolder_ The new address of the policyHolder
    */
-  function setPolicyHolder(address policyHolder_) external onlyRole(GUARDIAN_ROLE) {
+  function setPolicyHolder(address policyHolder_) external onlyRole(CUSTOMER_ROLE) {
     _policyHolder = policyHolder_;
     emit PolicyHolderChanged(policyHolder_);
   }
