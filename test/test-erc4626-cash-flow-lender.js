@@ -943,12 +943,12 @@ describe("ERC4626CashFlowLender contract tests", function () {
     let policyParams = await defaultBucketPolicyParams({ rmAddress: bucketRm.address });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, cust, signature)).to.be.revertedWith(
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, signature)).to.be.revertedWith(
       accessControlMessage(cust.address, null, "POLICY_CREATOR_ROLE")
     );
 
     policyParams = await defaultBucketPolicyParams({ rmAddress: bucketRm.address, bucketId: MaxUint256 });
-    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, cust, signature)).to.be.revertedWith(
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, cust, policyParams, signature)).to.be.revertedWith(
       accessControlMessage(cust.address, null, "POLICY_CREATOR_ROLE")
     );
   });
@@ -962,12 +962,12 @@ describe("ERC4626CashFlowLender contract tests", function () {
     });
     const signature = await makeSignedQuote(signer, policyParams);
 
-    await expect(newBucketPolicy(erc4626cfl, rm, creator, policyParams, cust, signature)).to.be.revertedWith(
+    await expect(newBucketPolicy(erc4626cfl, rm, creator, policyParams, signature)).to.be.revertedWith(
       "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
     );
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
-    const tx = await newBucketPolicy(erc4626cfl, rm, creator, policyParams, cust, signature);
+    const tx = await newBucketPolicy(erc4626cfl, rm, creator, policyParams, signature);
     const receipt = await tx.wait();
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
@@ -992,12 +992,12 @@ describe("ERC4626CashFlowLender contract tests", function () {
     });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature)).to.be.revertedWith(
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature)).to.be.revertedWith(
       "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
     );
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
-    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature);
+    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
     const receipt = await tx.wait();
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
@@ -1028,12 +1028,12 @@ describe("ERC4626CashFlowLender contract tests", function () {
     });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature)).to.be.revertedWith(
+    await expect(newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature)).to.be.revertedWith(
       "ERC20: transfer amount exceeds balance" // No funds in erc4626cfl
     );
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(0));
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
-    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, cust, signature);
+    const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
     const receipt = await tx.wait();
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));

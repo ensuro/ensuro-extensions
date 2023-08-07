@@ -238,7 +238,6 @@ contract ERC4626CashFlowLender is
     uint256 premium,
     uint256 lossProb,
     uint40 expiration,
-    address, // onBehalfOf is ignored
     bytes32 policyData,
     uint256 bucketId,
     bytes32 quoteSignatureR,
@@ -277,7 +276,6 @@ contract ERC4626CashFlowLender is
     uint256 premium,
     uint256 lossProb,
     uint40 expiration,
-    address, // onBehalfOf is ignored
     bytes32 policyData,
     uint256 bucketId,
     bytes32 quoteSignatureR,
@@ -304,7 +302,6 @@ contract ERC4626CashFlowLender is
         premium,
         lossProb,
         expiration,
-        address(this),
         policyData,
         bucketId,
         quoteSignatureR,
@@ -362,7 +359,6 @@ contract ERC4626CashFlowLender is
           premium[i],
           lossProb[i],
           expiration[i],
-          address(this),
           policyData[i],
           bucketId[i],
           quoteSignatureR[i],
