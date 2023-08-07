@@ -45,6 +45,7 @@ contract ERC4626CashFlowLender is
   event DebtChanged(int256 currentDebt);
   event RiskModuleChanged(SignedQuoteRiskModule newRiskModule);
   event CashOutPayout(address indexed destination, uint256 amount);
+  event AcquireDebt(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor() {
@@ -230,6 +231,17 @@ contract ERC4626CashFlowLender is
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
     emit CashOutPayout(destination, amount);
+  }
+
+  /**
+   *
+   * @param amount The amount to pay
+   */
+  function acquireDebt(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
+    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to pay the debt");
+    _increaseDebt(amount);
+    _currency().transfer(destination, amount);
+    emit AcquireDebt(destination, amount);
   }
 
   function _createBucketPolicy(
