@@ -41,8 +41,10 @@ contract ERC4626CashFlowLender is
 
   SignedQuoteRiskModule internal _riskModule;
   int256 internal _debt;
+  address internal _policyHolder;
 
   event DebtChanged(int256 currentDebt);
+  event PolicyHolderChanged(address policyHolder_);
   event RiskModuleChanged(SignedQuoteRiskModule newRiskModule);
   event CashOutPayout(address indexed destination, uint256 amount);
 
@@ -238,7 +240,6 @@ contract ERC4626CashFlowLender is
     uint256 premium,
     uint256 lossProb,
     uint40 expiration,
-    address, // onBehalfOf is ignored
     bytes32 policyData,
     uint256 bucketId,
     bytes32 quoteSignatureR,
@@ -250,7 +251,7 @@ contract ERC4626CashFlowLender is
       premium,
       lossProb,
       expiration,
-      address(this),
+      _policyHolder == address(0) ? address(this) : _policyHolder,
       policyData,
       bucketId,
       quoteSignatureR,
@@ -277,7 +278,6 @@ contract ERC4626CashFlowLender is
     uint256 premium,
     uint256 lossProb,
     uint40 expiration,
-    address, // onBehalfOf is ignored
     bytes32 policyData,
     uint256 bucketId,
     bytes32 quoteSignatureR,
@@ -291,7 +291,7 @@ contract ERC4626CashFlowLender is
         premium,
         lossProb,
         expiration,
-        address(this),
+        _policyHolder == address(0) ? address(this) : _policyHolder,
         policyData,
         quoteSignatureR,
         quoteSignatureVS,
@@ -304,7 +304,6 @@ contract ERC4626CashFlowLender is
         premium,
         lossProb,
         expiration,
-        address(this),
         policyData,
         bucketId,
         quoteSignatureR,
@@ -349,7 +348,7 @@ contract ERC4626CashFlowLender is
           premium[i],
           lossProb[i],
           expiration[i],
-          address(this),
+          _policyHolder == address(0) ? address(this) : _policyHolder,
           policyData[i],
           quoteSignatureR[i],
           quoteSignatureVS[i],
@@ -362,7 +361,6 @@ contract ERC4626CashFlowLender is
           premium[i],
           lossProb[i],
           expiration[i],
-          address(this),
           policyData[i],
           bucketId[i],
           quoteSignatureR[i],
@@ -501,6 +499,22 @@ contract ERC4626CashFlowLender is
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _decreaseDebt(amount);
     return IPolicyHolder.onPayoutReceived.selector;
+  }
+
+  /**
+   * @dev Sets the address of the `policyHolder`.
+   *
+   * Requirements:
+   * - Caller has GUARDIAN_ROLE
+   *
+   * Emits:
+   * - PolicyHolderChanged
+   *
+   * @param policyHolder_ The new address of the policyHolder
+   */
+  function setPolicyHolder(address policyHolder_) external onlyRole(GUARDIAN_ROLE) {
+    _policyHolder = policyHolder_;
+    emit PolicyHolderChanged(policyHolder_);
   }
 
   /**
