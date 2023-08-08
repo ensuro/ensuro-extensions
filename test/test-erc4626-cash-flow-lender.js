@@ -1214,17 +1214,17 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(150));
     newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
-    await expect(erc4626cfl.connect(anon).acquireDebt(_A(500), cust.address)).to.be.revertedWith(
+    await expect(erc4626cfl.connect(anon).borrow(_A(500), cust.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "CUSTOMER_ROLE")
     );
 
-    await expect(erc4626cfl.connect(cust).acquireDebt(_A(2000), cust.address)).to.be.revertedWith(
+    await expect(erc4626cfl.connect(cust).borrow(_A(2000), cust.address)).to.be.revertedWith(
       "ERC4626CashFlowLender: Not enough balance to pay the debt"
     );
 
     /* Increase the debt */
-    await expect(erc4626cfl.connect(cust).acquireDebt(_A(500), cust.address))
-      .to.emit(erc4626cfl, "AcquireDebt")
+    await expect(erc4626cfl.connect(cust).borrow(_A(500), cust.address))
+      .to.emit(erc4626cfl, "Borrow")
       .withArgs(cust.address, _A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(650));

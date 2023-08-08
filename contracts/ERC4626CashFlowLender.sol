@@ -45,7 +45,7 @@ contract ERC4626CashFlowLender is
   event DebtChanged(int256 currentDebt);
   event RiskModuleChanged(SignedQuoteRiskModule newRiskModule);
   event CashOutPayout(address indexed destination, uint256 amount);
-  event AcquireDebt(address indexed destination, uint256 amount);
+  event Borrow(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor() {
@@ -237,38 +237,11 @@ contract ERC4626CashFlowLender is
    *
    * @param amount The amount to pay
    */
-  function acquireDebt(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
+  function borrow(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
     require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to pay the debt");
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
-    emit AcquireDebt(destination, amount);
-  }
-
-  function _createBucketPolicy(
-    address riskModule_,
-    uint256 payout,
-    uint256 premium,
-    uint256 lossProb,
-    uint40 expiration,
-    bytes32 policyData,
-    uint256 bucketId,
-    bytes32 quoteSignatureR,
-    bytes32 quoteSignatureVS,
-    uint40 quoteValidUntil
-  ) internal returns (uint256 policyId) {
-    policyId = SignedBucketRiskModule(riskModule_).newPolicy(
-      payout,
-      premium,
-      lossProb,
-      expiration,
-      address(this),
-      policyData,
-      bucketId,
-      quoteSignatureR,
-      quoteSignatureVS,
-      quoteValidUntil
-    );
-    return policyId;
+    emit Borrow(destination, amount);
   }
 
   /**
@@ -308,12 +281,12 @@ contract ERC4626CashFlowLender is
         quoteValidUntil
       );
     } else {
-      policyId = _createBucketPolicy(
-        riskModule_,
+      policyId = SignedBucketRiskModule(riskModule_).newPolicy(
         payout,
         premium,
         lossProb,
         expiration,
+        address(this),
         policyData,
         bucketId,
         quoteSignatureR,
@@ -365,12 +338,12 @@ contract ERC4626CashFlowLender is
           quoteValidUntil[i]
         );
       } else {
-        _createBucketPolicy(
-          riskModules[i],
+        SignedBucketRiskModule(riskModules[i]).newPolicy(
           payout[i],
           premium[i],
           lossProb[i],
           expiration[i],
+          address(this),
           policyData[i],
           bucketId[i],
           quoteSignatureR[i],
