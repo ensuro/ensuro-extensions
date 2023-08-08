@@ -234,11 +234,19 @@ contract ERC4626CashFlowLender is
   }
 
   /**
+   * @dev Allows a customer to borrow funds.
    *
-   * @param amount The amount to pay
+   * This function facilitates borrowing by customers, increasing their debt and transferring the borrowed funds.
+   *
+   * Requirements:
+   * - Caller must have CUSTOMER_ROLE.
+   * - The contract's balance must be sufficient for the borrowing amount.
+   *
+   * @param amount The amount of funds to be borrowed.
+   * @param destination The address where the borrowed funds will be transferred.
    */
   function borrow(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
-    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to pay the debt");
+    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to borrow");
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
     emit Borrow(destination, amount);

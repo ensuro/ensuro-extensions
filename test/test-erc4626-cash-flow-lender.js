@@ -969,8 +969,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
     const tx = await newBucketPolicy(erc4626cfl, rm, creator, policyParams, signature);
     const receipt = await tx.wait();
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+    await expect(tx).changeTokenBalance(currency, erc4626cfl, -policyParams.premium);
+    expect(await erc4626cfl.currentDebt()).to.be.equal(policyParams.premium);
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
@@ -999,8 +999,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await currency.connect(cust).transfer(erc4626cfl.address, _A(1000));
     const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
     const receipt = await tx.wait();
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800)); // 200 spent on the premium
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    await expect(tx).changeTokenBalance(currency, erc4626cfl, -policyParams.premium);
+    expect(await erc4626cfl.currentDebt()).to.be.equal(policyParams.premium);
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
@@ -1011,7 +1012,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     );
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1600));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
   });
 
   it("With bucketID != MaxUint256 && bucketId != 0 creates policy with SignedBucketRiskModule", async () => {
@@ -1047,7 +1049,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     );
 
     await erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(800));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
+    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(1600));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout = -600
   });
 
   it("Create policies in batch with BucketId == MaxUint256 - SignedQuoteRiskModule ", async () => {
@@ -1179,47 +1182,14 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
   });
 
-  it("Customer acquire debt", async () => {
-    const { rm, pool, currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
-    let policyParams = await defaultPolicyParams({ rmAddress: rm.address, premium: _A(200) });
-    let signature = await makeSignedQuote(signer, policyParams);
+  it("Only customer role can borrow", async () => {
+    const { currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
 
     await currency.connect(owner).transfer(erc4626cfl.address, _A(1000));
-    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
-    let receipt = await tx.wait();
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(800));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
-
-    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
-    await expect(erc4626cfl.connect(resolver).resolvePolicy(newPolicyEvt.args[1], _A(150)))
-      .to.emit(erc4626cfl, "DebtChanged")
-      .withArgs(_A(50));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(50));
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(950));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
-    expect(await currency.balanceOf(cust.address)).to.be.equal(_A(2000)); // 2000 initial
-
-    // 2nd Policy
-    policyParams = await defaultPolicyParams({
-      rmAddress: rm.address,
-      premium: _A(100),
-      payout: _A(500),
-      policyData: "0x2cbef6744ebcff4969e06c41631a1d0aa71366c4fd997e9ff5a59b8efa9b9032",
-    });
-    signature = await makeSignedQuote(signer, policyParams);
-
-    tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
-    receipt = await tx.wait();
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(150));
-    newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
 
     await expect(erc4626cfl.connect(anon).borrow(_A(500), cust.address)).to.be.revertedWith(
       accessControlMessage(anon.address, null, "CUSTOMER_ROLE")
-    );
-
-    await expect(erc4626cfl.connect(cust).borrow(_A(2000), cust.address)).to.be.revertedWith(
-      "ERC4626CashFlowLender: Not enough balance to pay the debt"
     );
 
     /* Increase the debt */
@@ -1227,15 +1197,25 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .to.emit(erc4626cfl, "Borrow")
       .withArgs(cust.address, _A(500));
 
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(650));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(500));
+  });
 
-    await expect(erc4626cfl.connect(resolver).resolvePolicyFullPayout(newPolicyEvt.args[1], true))
-      .to.emit(erc4626cfl, "DebtChanged")
-      .withArgs(_A(650 - 500)); // 650 prev debt - 500 payout = 150
+  it("Cannot borrow more than current balance", async () => {
+    const { currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
 
-    expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(850));
-    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(150));
-    expect(await erc4626cfl.totalAssets()).to.be.equal(_A(1000));
+    await currency.connect(owner).transfer(erc4626cfl.address, _A(1000));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+
+    await expect(erc4626cfl.connect(cust).borrow(_A(2000), cust.address)).to.be.revertedWith(
+      "ERC4626CashFlowLender: Not enough balance to borrow"
+    );
+
+    /* Increase the debt */
+    await expect(erc4626cfl.connect(cust).borrow(_A(500), cust.address))
+      .to.emit(erc4626cfl, "Borrow")
+      .withArgs(cust.address, _A(500));
+
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(500));
   });
 });
 
