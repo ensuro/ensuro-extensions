@@ -31,10 +31,10 @@ const { AddressZero } = ethers.constants;
 
 describe("ERC4626CashFlowLender contract tests", function () {
   let _A;
-  let anon, changeRm, creator, cust, guardian, lp, lp2, owner, resolver, signer;
+  let anon, borrower, changeRm, creator, cust, guardian, lp, lp2, owner, resolver, signer;
 
   beforeEach(async () => {
-    [, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm] = await ethers.getSigners();
+    [, lp, lp2, cust, signer, resolver, creator, anon, owner, guardian, changeRm, borrower] = await ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -85,6 +85,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), erc4626cfl.address);
     await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp.address);
     await erc4626cfl.grantRole(await erc4626cfl.CUSTOMER_ROLE(), cust.address);
+    await erc4626cfl.grantRole(await erc4626cfl.BORROWER_ROLE(), borrower.address);
     await erc4626cfl.grantRole(await erc4626cfl.CHANGE_RM_ROLE(), changeRm.address);
     await erc4626cfl.grantRole(await erc4626cfl.RESOLVER_ROLE(), resolver.address);
     await erc4626cfl.grantRole(await erc4626cfl.POLICY_CREATOR_ROLE(), creator.address);
@@ -1173,22 +1174,23 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl.address);
   });
 
-  it("Only customer role can borrow", async () => {
+  it("Only borrower role can borrow", async () => {
     const { currency, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
 
     await currency.connect(owner).transfer(erc4626cfl.address, _A(1000));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
 
     await expect(erc4626cfl.connect(anon).borrow(_A(500), cust.address)).to.be.revertedWith(
-      accessControlMessage(anon.address, null, "CUSTOMER_ROLE")
+      accessControlMessage(anon.address, null, "BORROWER_ROLE")
     );
 
     /* Increase the debt */
-    await expect(erc4626cfl.connect(cust).borrow(_A(500), cust.address))
+    await expect(erc4626cfl.connect(borrower).borrow(_A(500), borrower.address))
       .to.emit(erc4626cfl, "Borrow")
-      .withArgs(cust.address, _A(500));
+      .withArgs(borrower.address, _A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(500));
+    expect(await currency.balanceOf(borrower.address)).to.be.equal(_A(500));
   });
 
   it("Cannot borrow more than current balance", async () => {
@@ -1197,16 +1199,17 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await currency.connect(owner).transfer(erc4626cfl.address, _A(1000));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
 
-    await expect(erc4626cfl.connect(cust).borrow(_A(2000), cust.address)).to.be.revertedWith(
+    await expect(erc4626cfl.connect(borrower).borrow(_A(2000), borrower.address)).to.be.revertedWith(
       "ERC4626CashFlowLender: Not enough balance to borrow"
     );
 
     /* Increase the debt */
-    await expect(erc4626cfl.connect(cust).borrow(_A(500), cust.address))
+    await expect(erc4626cfl.connect(borrower).borrow(_A(500), borrower.address))
       .to.emit(erc4626cfl, "Borrow")
-      .withArgs(cust.address, _A(500));
+      .withArgs(borrower.address, _A(500));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(500));
+    expect(await currency.balanceOf(borrower.address)).to.be.equal(_A(500));
   });
 });
 

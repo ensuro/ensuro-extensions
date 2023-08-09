@@ -34,6 +34,7 @@ contract ERC4626CashFlowLender is
 
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
   bytes32 public constant CHANGE_RM_ROLE = keccak256("CHANGE_RM_ROLE");
+  bytes32 public constant BORROWER_ROLE = keccak256("BORROWER_ROLE");
   bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
@@ -239,13 +240,13 @@ contract ERC4626CashFlowLender is
    * This function facilitates borrowing by customers, increasing their debt and transferring the borrowed funds.
    *
    * Requirements:
-   * - Caller must have CUSTOMER_ROLE.
+   * - Caller must have BORROWER_ROLE.
    * - The contract's balance must be sufficient for the borrowing amount.
    *
    * @param amount The amount of funds to be borrowed.
    * @param destination The address where the borrowed funds will be transferred.
    */
-  function borrow(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
+  function borrow(uint256 amount, address destination) external onlyRole(BORROWER_ROLE) {
     require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to borrow");
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
