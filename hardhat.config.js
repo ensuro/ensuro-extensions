@@ -28,6 +28,7 @@ module.exports = {
       "@ensuro/core/contracts/LPManualWhitelist.sol",
       "@ensuro/core/contracts/AccessManager.sol",
       "@ensuro/core/contracts/PremiumsAccount.sol",
+      "@ensuro/core/contracts/TrustfulRiskModule.sol",
       "@ensuro/core/contracts/SignedQuoteRiskModule.sol",
       "@ensuro/core/contracts/EToken.sol",
       "@ensuro/core/contracts/mocks/TestCurrency.sol",

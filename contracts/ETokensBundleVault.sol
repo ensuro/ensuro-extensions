@@ -41,6 +41,8 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
 
   Underlying[] internal _underlying;
 
+  event UnderlyingChanged(EToken etk, uint256 index, uint256 percentage);
+
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor() {
     _disableInitializers();
@@ -63,6 +65,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
+    require(etks.length > 0, "ETokensBundleVault: the vault must have always at least one ETK");
     __ERC4626_init(IERC20Upgradeable(address(etks[0].policyPool().currency())));
     __ETokensBundleVault_init_unchained(etks, percentages);
   }
@@ -73,16 +76,16 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     uint256[] calldata percentages
   ) internal onlyInitializing {
     require(
-      etks.length > 0 && etks.length == percentages.length,
-      "ETokensBundleVault: invalid etks or percentages"
+      etks.length == percentages.length,
+      "ETokensBundleVault: etks and percentages lengths differ"
     );
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
     IPolicyPool pool;
     uint256 totalPercentage;
     for (uint256 i; i < etks.length; i++) {
-      if (address(pool) == address(0)) {
-        pool = etks[i].policyPool();
+      if (i == 0) {
+        pool = etks[0].policyPool();
       } else {
         require(
           pool == etks[i].policyPool(),
@@ -90,6 +93,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
         );
       }
       _underlying.push(Underlying(etks[i], _wadTo16(percentages[i])));
+      emit UnderlyingChanged(etks[i], i, percentages[i]);
       totalPercentage += percentages[i];
     }
     /* WARNING: the user must check the etks are unique, they can't appear twice in the array */
@@ -104,7 +108,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   }
 
   function _16ToWad(uint16 value) internal pure returns (uint256) {
-    return (value * 10 ** 14);
+    return uint256(value) * 10 ** 14;
   }
 
   // solhint-disable-next-line no-empty-blocks
@@ -300,8 +304,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       require(newETK != _underlying[i].etk, "ETokensBundleVault: eToken already in the bundle");
       totalPercentage += percentages[i];
       _underlying[i].percentage = _wadTo16(percentages[i]);
+      emit UnderlyingChanged(_underlying[i].etk, i, percentages[i]);
     }
     totalPercentage += percentages[_underlying.length];
+    emit UnderlyingChanged(newETK, _underlying.length, percentages[_underlying.length]);
     _underlying.push(Underlying(newETK, _wadTo16(percentages[_underlying.length])));
 
     require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
@@ -322,9 +328,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
         found = etkToRemove == _underlying[i].etk;
       }
       if (found) {
-        _underlying[i + 1].etk = _underlying[i + 1].etk;
+        _underlying[i].etk = _underlying[i + 1].etk;
       }
       _underlying[i].percentage = _wadTo16(percentages[i]);
+      emit UnderlyingChanged(_underlying[i].etk, i, percentages[i]);
       totalPercentage += percentages[i];
     }
     require(
@@ -333,6 +340,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     );
     require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
     _underlying.pop();
+    emit UnderlyingChanged(etkToRemove, type(uint256).max, type(uint256).max);
     // Withdraw all the funds from removed eToken and deposit them
     uint256 balance = etkToRemove.balanceOf(address(this));
     if (balance != 0) {
@@ -352,6 +360,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     uint256 totalPercentage;
     for (uint256 i; i < _underlying.length; i++) {
       _underlying[i].percentage = _wadTo16(percentages[i]);
+      emit UnderlyingChanged(_underlying[i].etk, i, percentages[i]);
       totalPercentage += percentages[i];
     }
     require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
@@ -360,6 +369,20 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   function rebalance(uint256 from_, uint256 to_, uint256 amount) external onlyRole(REBALANCE_ROLE) {
     amount = policyPool().withdraw(_underlying[from_].etk, amount);
     policyPool().deposit(_underlying[to_].etk, amount);
+  }
+
+  function getUnderlying()
+    external
+    view
+    returns (EToken[] memory etks, uint256[] memory percentages)
+  {
+    etks = new EToken[](_underlying.length);
+    percentages = new uint256[](_underlying.length);
+    for (uint256 i; i < _underlying.length; i++) {
+      etks[i] = _underlying[i].etk;
+      percentages[i] = _16ToWad(_underlying[i].percentage);
+    }
+    return (etks, percentages);
   }
 
   /**
