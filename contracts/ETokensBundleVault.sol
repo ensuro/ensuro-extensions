@@ -107,6 +107,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return (value / 10 ** 14).toUint16();
   }
 
+  // solhint-disable-next-line func-name-mixedcase
   function _16ToWad(uint16 value) internal pure returns (uint256) {
     return uint256(value) * 10 ** 14;
   }

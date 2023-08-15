@@ -1,5 +1,11 @@
 const { expect } = require("chai");
-const { _W, amountFunction, getTransactionEvent, accessControlMessage } = require("@ensuro/core/js/utils");
+const {
+  _W,
+  amountFunction,
+  getTransactionEvent,
+  accessControlMessage,
+  grantComponentRole,
+} = require("@ensuro/core/js/utils");
 const {
   initCurrency,
   deployPool,
@@ -7,29 +13,55 @@ const {
   addRiskModule,
   addEToken,
 } = require("@ensuro/core/js/test-utils");
+const { WEEK } = require("@ensuro/core/js/constants");
 const { RiskModuleParameter, WhitelistStatus } = require("@ensuro/core/js/enums");
-const { newPolicy, defaultPolicyParams, defaultBucketPolicyParams, newBucketPolicy } = require("./test-utils");
+const { newPolicy, defaultPolicyParams } = require("./test-utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const { MaxUint256 } = hre.ethers.constants;
 
 const { ethers } = hre;
-const { AddressZero } = ethers.constants;
+
+const ETokenParameter = {
+  // TODO: add this to enums.js
+  liquidityRequirement: 0,
+  minUtilizationRate: 1,
+  maxUtilizationRate: 2,
+  internalLoanInterestRate: 3,
+};
 
 describe("ETokensBundleVault contract tests", function () {
   let _A;
-  let anon, borrower, changeRm, creator, cust, guardian, lp, lp2, owner, resolver, signer;
+  let anon, cust, lp, lp2, owner, resolver;
   let CENTS;
   let ONE;
 
   beforeEach(async () => {
-    [, lp, lp2, lp3, cust, signer, resolver, creator, anon, owner, guardian, changeRm, borrower] =
-      await ethers.getSigners();
+    [, lp, lp2, lp3, cust, resolver, creator, anon, owner] = await ethers.getSigners();
 
     _A = amountFunction(6);
     CENTS = _A("0.0001");
     ONE = _A("0.000001");
   });
+
+  async function newPolicy(rm, srSCR, jrSCR, duration, onBehalfOf, internalId) {
+    // CollRatio = 1
+    // JrCollRatio = 0.4
+    const payout = srSCR.mul(_A("1")).div(_A("0.6"));
+    const jrSCRRatio = jrSCR.mul(_W("1")).div(payout);
+    expect(jrSCRRatio.lt(_W("0.4"))).to.be.true;
+    const lossProb = _W("0.4").sub(jrSCRRatio);
+
+    const now = await helpers.time.latest();
+    return await rm.newPolicy(
+      payout,
+      MaxUint256,
+      lossProb,
+      now + (duration || WEEK),
+      (onBehalfOf || cust).address,
+      internalId || 1
+    );
+  }
 
   async function deployPoolFixture() {
     const currency = await initCurrency(
@@ -64,21 +96,30 @@ describe("ETokensBundleVault contract tests", function () {
 
     const wl = await hre.upgrades.deployProxy(
       LPManualWhitelist,
-      [[WhitelistStatus.blacklisted, WhitelistStatus.blacklisted, WhitelistStatus.whitelisted, WhitelistStatus.whitelisted]],
+      [
+        [
+          WhitelistStatus.blacklisted,
+          WhitelistStatus.blacklisted,
+          WhitelistStatus.whitelisted,
+          WhitelistStatus.whitelisted,
+        ],
+      ],
       {
         constructorArgs: [pool.address],
         kind: "uups",
       }
     );
+    grantComponentRole(hre, accessManager, wl, "LP_WHITELIST_ROLE");
+    grantComponentRole(hre, accessManager, wl, "LP_WHITELIST_ADMIN_ROLE");
 
     // Setup - 3 PAs, each one with Sr and Jr EToken and one Trustfull RM
     for (let i = 0; i < 3; i++) {
       const jr = await addEToken(pool, {});
       const sr = await addEToken(pool, {});
       if (i % 2 == 0) {
-        await jr.setWhitelist(wl.address);  // jr 0 and 2 will have WL
+        await jr.setWhitelist(wl.address); // jr 0 and 2 will have WL
       } else {
-        await sr.setWhitelist(wl.address);  // sr 1 will have WL
+        await sr.setWhitelist(wl.address); // sr 1 will have WL
       }
       const pa = await deployPremiumsAccount(pool, { srEtkAddr: sr.address, jrEtkAddr: jr.address });
       const rm = await addRiskModule(pool, pa, TrustfulRiskModule, {
@@ -88,8 +129,8 @@ describe("ETokensBundleVault contract tests", function () {
       });
       await rm.setParam(RiskModuleParameter.jrCollRatio, _W("0.4"));
       await rm.setParam(RiskModuleParameter.jrRoc, _W("0.5"));
-      await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), signer.address);
-      await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), signer.address);
+      await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), cust.address);
+      await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), resolver.address);
       jrETKs.push(jr);
       srETKs.push(sr);
       pas.push(pa);
@@ -99,7 +140,7 @@ describe("ETokensBundleVault contract tests", function () {
     // Setup the liquidity sources
     const ETokensBundleVault = await ethers.getContractFactory("ETokensBundleVault");
 
-    return { pool, currency, accessManager, jrETKs, srETKs, pas, rms, ETokensBundleVault };
+    return { pool, currency, accessManager, jrETKs, srETKs, pas, rms, ETokensBundleVault, wl };
   }
 
   it("Initializes only with correct parameters", async () => {
@@ -147,11 +188,12 @@ describe("ETokensBundleVault contract tests", function () {
     );
   });
 
-  it.only("Checks deposits and withdrawals without restrictions", async () => {
+  it("Checks deposits and withdrawals without restrictions", async () => {
     const { ETokensBundleVault, jrETKs, srETKs, currency, pool } = await helpers.loadFixture(deployPoolFixture);
-    const etks = [jrETKs[1], srETKs[0], srETKs[2]];  // etks without WL
-    let vault = await hre.upgrades.deployProxy(ETokensBundleVault, [etks.map((etk) => etk.address),
-      [_W("0.4"), _W("0.25"), _W("0.35")]],
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -160,21 +202,19 @@ describe("ETokensBundleVault contract tests", function () {
     expect(await vault.maxDeposit(anon.address)).to.be.equal(MaxUint256);
     expect(await vault.maxMint(anon.address)).to.be.equal(MaxUint256);
 
-    await expect(vault.connect(lp).deposit(_A(1000), lp.address)).to.be.revertedWith(
-      "ERC20: insufficient allowance"
-    );
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address)).to.be.revertedWith("ERC20: insufficient allowance");
 
     // LP1 deposits 1K
     await currency.connect(lp).approve(vault.address, MaxUint256);
-    await expect(vault.connect(lp).deposit(_A(1000), lp.address)).to.emit(
-      vault, "Deposit"
-    ).withArgs(lp.address, lp.address, _A(1000), _A(1000));
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp.address, lp.address, _A(1000), _A(1000));
 
     // LP2 deposits 2K to anon
     await currency.connect(lp2).approve(vault.address, MaxUint256);
-    await expect(vault.connect(lp2).deposit(_A(2000), anon.address)).to.emit(
-      vault, "Deposit"
-    ).withArgs(lp2.address, anon.address, _A(2000), _A(2000));
+    await expect(vault.connect(lp2).deposit(_A(2000), anon.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp2.address, anon.address, _A(2000), _A(2000));
 
     expect(await vault.totalAssets()).to.be.equal(_A(3000));
     expect(await vault.totalSupply()).to.be.equal(_A(3000));
@@ -182,9 +222,9 @@ describe("ETokensBundleVault contract tests", function () {
     expect(await vault.balanceOf(lp2.address)).to.be.equal(_A(0));
     expect(await vault.balanceOf(anon.address)).to.be.equal(_A(2000));
 
-    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(1200));  // 3000 * .4
-    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(750));  // 3000 * .25
-    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(1050));  // 3000 * .35
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(1200)); // 3000 * .4
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(750)); // 3000 * .25
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(1050)); // 3000 * .35
 
     // LP3 deposits some funds to etks[0] directly and gifts them to the vault (easy way to simulate a return)
     await pool.connect(lp3).deposit(etks[0].address, _A(1500));
@@ -199,33 +239,157 @@ describe("ETokensBundleVault contract tests", function () {
 
     // LP1 withdraws 1000
     let before = await currency.balanceOf(lp.address);
-    await expect(vault.connect(lp).withdraw(_A(1000), lp.address, lp.address)).to.emit(
-      vault, "Withdraw"
-    ).withArgs(lp.address, lp.address, lp.address, _A(1000), _A("666.666667"));
+    await expect(vault.connect(lp).withdraw(_A(1000), lp.address, lp.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(lp.address, lp.address, lp.address, _A(1000), _A("666.666667"));
     expect(await currency.balanceOf(lp.address)).to.be.equal(before.add(_A(1000)));
 
     // Check it was withdrawn proportional to assets
-    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(1200 + 1500 - 600));  // 60% of the assets
-    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(750).sub(_A("166.666667")));  // 16.67%
-    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(1050).sub(_A("233.333333")));  // 23.33%
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(1200 + 1500 - 600)); // 60% of the assets
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(750).sub(_A("166.666667"))); // 16.67%
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(1050).sub(_A("233.333333"))); // 23.33%
 
     // LP1 redeems all its shares
     before = await currency.balanceOf(lp.address);
-    await expect(vault.connect(lp).redeem((await vault.balanceOf(lp.address)).sub(ONE), lp.address, lp.address)).to.emit(
-      vault, "Withdraw"
-    ).withArgs(lp.address, lp.address, lp.address, _A("499.999998"), _A("333.333332"));
+    await expect(vault.connect(lp).redeem((await vault.balanceOf(lp.address)).sub(ONE), lp.address, lp.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(lp.address, lp.address, lp.address, _A("499.999998"), _A("333.333332"));
     expect(await currency.balanceOf(lp.address)).to.be.closeTo(before.add(_A(500)), CENTS);
 
     // anon redeems all its shares
     before = await currency.balanceOf(anon.address);
-    await expect(vault.connect(anon).redeem(await vault.balanceOf(anon.address), anon.address, anon.address)).to.emit(
-      vault, "Withdraw"
-    ).withArgs(anon.address, anon.address, anon.address, _A("3000"), _A("2000"));
+    await expect(vault.connect(anon).redeem(await vault.balanceOf(anon.address), anon.address, anon.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(anon.address, anon.address, anon.address, _A("3000"), _A("2000"));
     expect(await currency.balanceOf(anon.address)).to.be.closeTo(before.add(_A(3000)), CENTS);
-
-
   });
 
+  it("Checks deposits and withdrawals reject non-whitelisted users ", async () => {
+    const { ETokensBundleVault, jrETKs, currency, wl } = await helpers.loadFixture(deployPoolFixture);
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await wl.whitelistAddress(vault.address, Array(4).fill(WhitelistStatus.whitelisted));
+
+    expect(await vault.maxDeposit(anon.address)).to.be.equal(0);
+    expect(await vault.maxMint(anon.address)).to.be.equal(0);
+
+    await currency.connect(lp).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address)).to.be.revertedWith("ERC4626: deposit more than max");
+
+    expect(await vault.maxDeposit(lp.address)).to.be.equal(0);
+    expect(await vault.maxMint(lp.address)).to.be.equal(0);
+    await wl.whitelistAddress(lp.address, [
+      WhitelistStatus.whitelisted, // Only deposit whitelisted
+      WhitelistStatus.blacklisted,
+      WhitelistStatus.blacklisted,
+      WhitelistStatus.blacklisted,
+    ]);
+    expect(await vault.maxDeposit(lp.address)).to.be.equal(MaxUint256);
+    expect(await vault.maxMint(lp.address)).to.be.equal(MaxUint256);
+
+    // LP1 deposits 1K
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp.address, lp.address, _A(1000), _A(1000));
+
+    expect(await vault.totalAssets()).to.be.equal(_A(1000));
+    expect(await vault.totalSupply()).to.be.equal(_A(1000));
+
+    // Withdrawal is forbidden because LP blacklisted for withdraw
+    expect(await vault.maxWithdraw(lp.address)).to.be.equal(0);
+    expect(await vault.maxRedeem(lp.address)).to.be.equal(0);
+
+    await wl.whitelistAddress(lp.address, Array(4).fill(WhitelistStatus.whitelisted));
+
+    // Now withdrawal is enabled
+    expect(await vault.maxWithdraw(lp.address)).to.be.equal(_A(1000));
+    expect(await vault.maxRedeem(lp.address)).to.be.equal(_A(1000));
+
+    // LP redeems all its shares, giving with anon as receiver
+    let before = await currency.balanceOf(anon.address);
+    await expect(vault.connect(lp).redeem(await vault.balanceOf(lp.address), anon.address, lp.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(lp.address, anon.address, lp.address, _A("1000"), _A("1000"));
+    expect(await currency.balanceOf(anon.address)).to.be.closeTo(before.add(_A(1000)), CENTS);
+  });
+
+  it("Checks deposits and withdrawals with minUR and withdrawable restrictions", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs, currency, pool, rms, wl } = await helpers.loadFixture(
+      deployPoolFixture
+    );
+
+    // Whitelist everyone, for simplicity of the pair etks
+    await wl.setWhitelistDefaults(Array(4).fill(WhitelistStatus.whitelisted));
+
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+
+    // LP3 deposits some funds to etks[0]
+    await pool.connect(lp3).deposit(etks[0].address, _A(100));
+    await pool.connect(lp3).deposit(etks[1].address, _A(200));
+    await pool.connect(lp3).deposit(etks[2].address, _A(300));
+    await pool.connect(lp3).deposit(jrETKs[2].address, _A(1000));
+
+    await etks[0].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
+
+    // Anyone can deposit because the other etks still accept money
+    expect(await vault.maxDeposit(anon.address)).to.be.equal(MaxUint256);
+    expect(await vault.maxMint(anon.address)).to.be.equal(MaxUint256);
+
+    await etks[1].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
+    await etks[2].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
+
+    expect(await vault.maxDeposit(anon.address)).to.be.equal(0);
+    expect(await vault.maxMint(anon.address)).to.be.equal(0);
+
+    await etks[1].setParam(ETokenParameter.minUtilizationRate, _W(0));
+
+    // LP1 deposits 1K
+    await currency.connect(lp).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp.address, lp.address, _A(1000), _A(1000));
+
+    expect(await vault.totalAssets()).to.be.equal(_A(1000));
+    expect(await vault.totalSupply()).to.be.equal(_A(1000));
+    expect(await vault.balanceOf(lp.address)).to.be.equal(_A(1000));
+
+    // All the deposit goes to etks[1] because the others don't accept deposits
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(0);
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(1000));
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(0));
+
+    // Lock some funds in etks[2], so UR is above 10% and accepts some deposits
+    const tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
+
+    expect(await etks[2].utilizationRate()).to.be.equal(_W("0.5"));
+
+    // LP2 deposits 2K
+    await currency.connect(lp2).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp2).deposit(_A(2000), lp2.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp2.address, lp2.address, _A(2000), _A(2000));
+
+    // All the deposit goes to etks[1] because the others don't accept deposits
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(0);
+    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(1800), CENTS);
+    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(1200), CENTS);
+
+    // TODO: explanation why 1800 and 1200.
+    //
+    // TODO: withdrawal tests
+  });
 });
 
 /**
