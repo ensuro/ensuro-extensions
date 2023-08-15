@@ -249,7 +249,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     for (uint256 i; i < last; i++) {
       toWithdraw = _underlying[i].etk.balanceOf(address(this));
       toWithdraw = MathUpgradeable.min(
-        toWithdraw.wadMul(toWithdraw).wadDiv(totalAssets_),
+        assets.wadMul(toWithdraw.wadDiv(totalAssets_)),
         _underlying[i].etk.totalWithdrawable()
       );
       if (toWithdraw != 0) {
