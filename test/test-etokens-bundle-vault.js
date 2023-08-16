@@ -44,7 +44,7 @@ describe("ETokensBundleVault contract tests", function () {
     ONE = _A("0.000001");
   });
 
-  async function newPolicy(rm, srSCR, jrSCR, duration, onBehalfOf, internalId) {
+  async function newPolicy(rm, srSCR, jrSCR, internalId, duration, onBehalfOf) {
     // CollRatio = 1
     // JrCollRatio = 0.4
     const payout = srSCR.mul(_A("1")).div(_A("0.6"));
@@ -371,7 +371,8 @@ describe("ETokensBundleVault contract tests", function () {
     expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(0));
 
     // Lock some funds in etks[2], so UR is above 10% and accepts some deposits
-    const tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
+    let tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
+    const policy1Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
 
     expect(await etks[2].utilizationRate()).to.be.equal(_W("0.5"));
 
@@ -383,12 +384,55 @@ describe("ETokensBundleVault contract tests", function () {
 
     // All the deposit goes to etks[1] because the others don't accept deposits
     expect(await etks[0].balanceOf(vault.address)).to.be.equal(0);
-    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(1800), CENTS);
-    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(1200), CENTS);
 
-    // TODO: explanation why 1800 and 1200.
-    //
-    // TODO: withdrawal tests
+    // etks[2] had 300, with SCR=150 + 1200 = 1500 => UR = 10%
+    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(1200), CENTS);
+    expect(await etks[2].utilizationRate()).to.be.equal(_W("0.1")); // UR in the minLevel
+
+    // The remaining funds go to etks[1]
+    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(1800), CENTS);
+
+    // LP3 withdraws everything in etks[2]
+    await pool.connect(lp3).withdraw(etks[2].address, MaxUint256);
+    expect(await etks[2].totalSupply()).to.be.closeTo(_A(1200), CENTS);
+
+    // Lock more the funds in etks[2]
+    tx = await newPolicy(rms[2].connect(cust), _A(950), _A(75), 2);
+    const policy2Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
+
+    expect(await vault.maxWithdraw(lp2.address)).to.be.closeTo(_A(1900), CENTS);
+    expect(await vault.maxRedeem(lp2.address)).to.be.closeTo(_A(1900), ONE);
+
+    await expect(vault.connect(lp2).withdraw(_A(1000), lp2.address, lp2.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(lp2.address, lp2.address, lp2.address, _A(1000), _A(1000).sub(ONE));
+
+    expect(await etks[2].utilizationRate()).to.be.equal(_W("1"));
+    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(1100), CENTS);
+    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(900), CENTS);
+
+    // LP1 can withdraw only 900
+    expect(await vault.maxWithdraw(lp.address)).to.be.closeTo(_A(900), CENTS);
+
+    const lp1MaxRedeem = await vault.maxRedeem(lp.address);
+    expect(lp1MaxRedeem).to.be.closeTo(_A(900), CENTS);
+
+    await expect(vault.connect(lp).redeem(lp1MaxRedeem, lp.address, lp.address)).to.emit(vault, "Withdraw");
+
+    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(0), CENTS);
+
+    expect(await vault.maxWithdraw(lp2.address)).to.be.closeTo(_A(0), CENTS);
+
+    await rms[2].connect(resolver).resolvePolicy(policy1Evt.args[1], _A(0));
+    await rms[2].connect(resolver).resolvePolicy(policy2Evt.args[1], _A(0));
+    expect(await etks[2].utilizationRate()).to.be.equal(_W(0));
+
+    await expect(
+      vault.connect(lp).redeem((await vault.balanceOf(lp.address)).sub(ONE), lp.address, lp.address)
+    ).to.emit(vault, "Withdraw");
+    await expect(
+      vault.connect(lp2).redeem((await vault.balanceOf(lp2.address)).sub(ONE), lp2.address, lp2.address)
+    ).to.emit(vault, "Withdraw");
   });
 });
 
