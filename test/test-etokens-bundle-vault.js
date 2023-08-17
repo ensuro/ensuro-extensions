@@ -5,6 +5,7 @@ const {
   getTransactionEvent,
   accessControlMessage,
   grantComponentRole,
+  grantRole,
 } = require("@ensuro/core/js/utils");
 const {
   initCurrency,
@@ -32,12 +33,12 @@ const ETokenParameter = {
 
 describe("ETokensBundleVault contract tests", function () {
   let _A;
-  let anon, cust, lp, lp2, owner, resolver;
+  let anon, cust, lp, lp2, admin, resolver;
   let CENTS;
   let ONE;
 
   beforeEach(async () => {
-    [, lp, lp2, lp3, cust, resolver, creator, anon, owner] = await ethers.getSigners();
+    [, lp, lp2, lp3, cust, resolver, creator, anon, admin] = await ethers.getSigners();
 
     _A = amountFunction(6);
     CENTS = _A("0.0001");
@@ -66,8 +67,8 @@ describe("ETokensBundleVault contract tests", function () {
   async function deployPoolFixture() {
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(500000) },
-      [lp, lp2, lp3, cust, owner],
-      [_A(100000), _A(200000), _A(30000), _A(5000), _A(1000)]
+      [lp, lp2, lp3, cust],
+      [_A(100000), _A(200000), _A(30000), _A(5000)]
     );
 
     const pool = await deployPool({
@@ -144,7 +145,7 @@ describe("ETokensBundleVault contract tests", function () {
   }
 
   it("Initializes only with correct parameters", async () => {
-    const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
+    const { ETokensBundleVault, jrETKs, currency } = await helpers.loadFixture(deployPoolFixture);
     await expect(hre.upgrades.deployProxy(ETokensBundleVault, [[], []], { kind: "uups" })).to.be.revertedWith(
       "ETokensBundleVault: the vault must have always at least one ETK"
     );
@@ -167,6 +168,9 @@ describe("ETokensBundleVault contract tests", function () {
     expect(events.map((evt) => evt.args.index)).to.deep.equal([0, 1, 2]);
     expect(events.map((evt) => evt.args.etk)).to.deep.equal(allJrs);
 
+    expect(await vault.asset()).to.be.equal(currency.address);
+    expect(await vault.decimals()).to.be.equal(await currency.decimals());
+
     // Test it can't be initialized twice
     await expect(vault.initialize(allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
       "Initializable: contract is already initialized"
@@ -179,6 +183,28 @@ describe("ETokensBundleVault contract tests", function () {
     expect(underlying[1]).to.deep.equal([_W("0.4"), _W("0.25"), _W("0.35")]);
   });
 
+  it("Rejects mixing pools on initialization", async () => {
+    const { ETokensBundleVault, jrETKs, currency, accessManager } = await helpers.loadFixture(deployPoolFixture);
+    const anotherPool = await deployPool({
+      currency: currency.address,
+      access: accessManager.address,
+      grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
+      treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
+    });
+    const alienETK = await addEToken(anotherPool, {});
+
+    await expect(
+      hre.upgrades.deployProxy(
+        ETokensBundleVault,
+        [
+          [jrETKs[0].address, alienETK.address],
+          [_W("0.4"), _W("0.6")],
+        ],
+        { kind: "uups" }
+      )
+    ).to.be.revertedWith("ETokensBundleVault: Can't mix eTokens from different PolicyPool");
+  });
+
   it("Checks implementation can't be initialized", async () => {
     const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
     const impl = await ETokensBundleVault.deploy();
@@ -186,6 +212,138 @@ describe("ETokensBundleVault contract tests", function () {
     await expect(impl.initialize(allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
       "Initializable: contract is already initialized"
     );
+  });
+
+  it("Checks addEToken validations", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs } = await helpers.loadFixture(deployPoolFixture);
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "ADMIN_ROLE", admin);
+
+    await expect(vault.connect(anon).addEToken(jrETKs[0].address, Array(4).fill(_W("0.25")))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "ADMIN_ROLE")
+    );
+
+    await expect(vault.connect(admin).addEToken(jrETKs[0].address, Array(3).fill(_W("0.25")))).to.be.revertedWith(
+      "ETokensBundleVault: must send the new percentages"
+    );
+
+    await expect(vault.connect(admin).addEToken(jrETKs[1].address, Array(4).fill(_W("0.25")))).to.be.revertedWith(
+      "ETokensBundleVault: eToken already in the bundle"
+    );
+
+    await expect(vault.connect(admin).addEToken(jrETKs[0].address, Array(4).fill(_W("0.24")))).to.be.revertedWith(
+      "ETokensBundleVault: total percentage must be 100%"
+    );
+
+    const tx = await vault.connect(admin).addEToken(jrETKs[0].address, Array(4).fill(_W("0.25")));
+    let events = getTransactionEvents(vault.interface, await tx.wait(), "UnderlyingChanged");
+    expect(events.length).to.be.equal(4);
+    expect(events.map((evt) => evt.args.index)).to.deep.equal([0, 1, 2, 3]);
+    etks.push(jrETKs[0]);
+    expect(events.map((evt) => evt.args.etk)).to.deep.equal(etks.map((etk) => etk.address));
+    expect(events.map((evt) => evt.args.percentage)).to.deep.equal(Array(4).fill(_W("0.25")));
+
+    const underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal(etks.map((etk) => etk.address));
+    expect(underlying[1]).to.deep.equal(Array(4).fill(_W("0.25")));
+  });
+
+  it("Checks it can't add eTokens from another pool", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs, accessManager, currency } = await helpers.loadFixture(
+      deployPoolFixture
+    );
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "ADMIN_ROLE", admin);
+
+    const anotherPool = await deployPool({
+      currency: currency.address,
+      access: accessManager.address,
+      grantRoles: ["LEVEL1_ROLE", "LEVEL2_ROLE"],
+      treasuryAddress: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199", // Random address
+    });
+    const alienETK = await addEToken(anotherPool, {});
+
+    await expect(vault.connect(admin).addEToken(alienETK.address, Array(4).fill(_W("0.25")))).to.be.revertedWith(
+      "ETokensBundleVault: Can't mix eTokens from different PolicyPool"
+    );
+  });
+
+  it("Checks removeEToken validations", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs } = await helpers.loadFixture(deployPoolFixture);
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "ADMIN_ROLE", admin);
+
+    await expect(vault.connect(anon).removeEToken(jrETKs[0].address, Array(2).fill(_W("0.5")))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "ADMIN_ROLE")
+    );
+
+    await expect(vault.connect(admin).removeEToken(jrETKs[0].address, Array(1).fill(_W("1")))).to.be.revertedWith(
+      "ETokensBundleVault: must send the new percentages"
+    );
+
+    await expect(vault.connect(admin).removeEToken(srETKs[1].address, Array(2).fill(_W("0.5")))).to.be.revertedWith(
+      "ETokensBundleVault: token to remove not found!"
+    );
+
+    await expect(vault.connect(admin).removeEToken(jrETKs[1].address, Array(2).fill(_W("0.4")))).to.be.revertedWith(
+      "ETokensBundleVault: total percentage must be 100%"
+    );
+
+    // Remove one token in the middle
+    let tx = await vault.connect(admin).removeEToken(jrETKs[1].address, Array(2).fill(_W("0.5")));
+    let events = getTransactionEvents(vault.interface, await tx.wait(), "UnderlyingChanged");
+    expect(events.length).to.be.equal(3);
+    expect(events.map((evt) => evt.args.index)).to.deep.equal([0, 1, MaxUint256]);
+    expect(events.map((evt) => evt.args.etk)).to.deep.equal([jrETKs[0].address, jrETKs[2].address, jrETKs[1].address]);
+    expect(events.map((evt) => evt.args.percentage)).to.deep.equal([_W("0.5"), _W("0.5"), MaxUint256]);
+
+    let underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal([jrETKs[0].address, jrETKs[2].address]);
+    expect(underlying[1]).to.deep.equal(Array(2).fill(_W("0.5")));
+
+    // Remove the last token
+    tx = await vault.connect(admin).removeEToken(jrETKs[2].address, [_W(1)]);
+    events = getTransactionEvents(vault.interface, await tx.wait(), "UnderlyingChanged");
+    expect(events.length).to.be.equal(2);
+    expect(events.map((evt) => evt.args.index)).to.deep.equal([0, MaxUint256]);
+    expect(events.map((evt) => evt.args.etk)).to.deep.equal([jrETKs[0].address, jrETKs[2].address]);
+    expect(events.map((evt) => evt.args.percentage)).to.deep.equal([_W(1), MaxUint256]);
+
+    underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal([jrETKs[0].address]);
+    expect(underlying[1]).to.deep.equal([_W(1)]);
+
+    // Can't remove the eToken is only one remains
+    await expect(vault.connect(admin).removeEToken(jrETKs[0].address, [])).to.be.revertedWith(
+      "ETokensBundleVault: must send the new percentages"
+    );
+
+    // Add one eToken and then I can remove the first one
+    tx = await vault.connect(admin).addEToken(srETKs[1].address, [_W("0.75"), _W("0.25")]);
+    tx = await vault.connect(admin).removeEToken(jrETKs[0].address, [_W(1)]);
+    underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal([srETKs[1].address]);
+    expect(underlying[1]).to.deep.equal([_W(1)]);
   });
 
   it("Checks deposits and withdrawals without restrictions", async () => {
@@ -370,6 +528,12 @@ describe("ETokensBundleVault contract tests", function () {
     expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(1000));
     expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(0));
 
+    // Check at this point, etks[1] can't be removed because the other etks don't accept the withdrawn funds
+    await grantRole(hre, vault, "ADMIN_ROLE", admin);
+    await expect(vault.connect(admin).removeEToken(etks[1].address, [_W("0.4"), _W("0.6")])).to.be.revertedWith(
+      "ETokensBundleVault: couldn't allocate all the deposit"
+    );
+
     // Lock some funds in etks[2], so UR is above 10% and accepts some deposits
     let tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
     const policy1Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
@@ -396,6 +560,11 @@ describe("ETokensBundleVault contract tests", function () {
     await pool.connect(lp3).withdraw(etks[2].address, MaxUint256);
     expect(await etks[2].totalSupply()).to.be.closeTo(_A(1200), CENTS);
 
+    // Check at this point, etks[2] can't be removed because not all the funds are withdrawable
+    await expect(vault.connect(admin).removeEToken(etks[2].address, [_W("0.4"), _W("0.6")])).to.be.revertedWith(
+      "amount > max withdrawable"
+    );
+
     // Lock more the funds in etks[2]
     tx = await newPolicy(rms[2].connect(cust), _A(950), _A(75), 2);
     const policy2Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
@@ -420,6 +589,7 @@ describe("ETokensBundleVault contract tests", function () {
     await expect(vault.connect(lp).redeem(lp1MaxRedeem, lp.address, lp.address)).to.emit(vault, "Withdraw");
 
     expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(_A(0), CENTS);
+    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(1100), CENTS);
 
     expect(await vault.maxWithdraw(lp2.address)).to.be.closeTo(_A(0), CENTS);
 
@@ -427,12 +597,86 @@ describe("ETokensBundleVault contract tests", function () {
     await rms[2].connect(resolver).resolvePolicy(policy2Evt.args[1], _A(0));
     expect(await etks[2].utilizationRate()).to.be.equal(_W(0));
 
+    // Now etks[2] can be removed and funds will be deposited into etks[1] (since etks[0] doesn't accept
+    // deposit)
+    await expect(vault.connect(admin).removeEToken(etks[2].address, [_W("0.4"), _W("0.6")])).to.emit(
+      etks[2],
+      "Transfer"
+    );
+
+    const etk2Balance = _A(1100).add(policy1Evt.args[1].srCoc).add(policy2Evt.args[1].srCoc);
+    expect(await etks[2].balanceOf(vault.address)).to.be.closeTo(_A(0), CENTS);
+    expect(await etks[1].balanceOf(vault.address)).to.be.closeTo(etk2Balance, CENTS);
+
     await expect(
       vault.connect(lp).redeem((await vault.balanceOf(lp.address)).sub(ONE), lp.address, lp.address)
     ).to.emit(vault, "Withdraw");
     await expect(
       vault.connect(lp2).redeem((await vault.balanceOf(lp2.address)).sub(ONE), lp2.address, lp2.address)
     ).to.emit(vault, "Withdraw");
+  });
+
+  it("Checks inflation attack is unprofitable", async () => {
+    const { ETokensBundleVault, jrETKs, currency, pool } = await helpers.loadFixture(deployPoolFixture);
+    const etks = [jrETKs[1]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(ETokensBundleVault, [etks.map((etk) => etk.address), [_W("1")]], {
+      kind: "uups",
+    });
+
+    const victimDeposit = _A(500);
+
+    // LP1 is the attacker
+    // LP2 is the victim
+    // LP2 want's to do a the first deposit of `victimDeposit` and LP1 front runs her.
+
+    // LP1 deposits ONE
+    await currency.connect(lp).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp).deposit(ONE, lp.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp.address, lp.address, ONE, ONE);
+
+    // LP1 deposits some funds to etks[0] directly and gifts them to the vault
+    await pool.connect(lp).deposit(etks[0].address, victimDeposit.mul(2));
+    await etks[0].connect(lp).transfer(vault.address, victimDeposit.mul(2));
+    expect(await vault.totalAssets()).to.be.equal(victimDeposit.mul(2).add(ONE));
+    expect(await vault.totalSupply()).to.be.equal(ONE);
+
+    const attackerCost = victimDeposit.mul(2).add(ONE);
+
+    // LP2 deposits 500 and gets 0 shares
+    await currency.connect(lp2).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp2).deposit(victimDeposit, lp2.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp2.address, lp2.address, victimDeposit, _A(0));
+
+    expect(await vault.totalSupply()).to.be.equal(ONE);
+    expect(await vault.totalAssets()).to.be.equal(victimDeposit.mul(3).add(ONE));
+    const attackerProfit = victimDeposit.mul(3).div(2).add(ONE);
+    expect(await vault.maxWithdraw(lp.address)).to.be.equal(attackerProfit);
+
+    await expect(vault.connect(lp).redeem(ONE, lp.address, lp.address))
+      .to.emit(vault, "Withdraw")
+      .withArgs(lp.address, lp.address, lp.address, attackerProfit, ONE);
+
+    expect(await vault.totalSupply()).to.be.equal(0);
+    expect(await vault.totalAssets()).to.be.equal(attackerProfit.sub(ONE));
+    // Attacker profit is less than attacker's cost
+    expect(attackerProfit.lt(attackerCost)).to.be.true;
+  });
+
+  it("Checks deposits and withdrawals without restrictions", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs, currency, pool } = await helpers.loadFixture(deployPoolFixture);
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+
+    expect(await vault.maxDeposit(anon.address)).to.be.equal(MaxUint256);
+    expect(await vault.maxMint(anon.address)).to.be.equal(MaxUint256);
   });
 });
 

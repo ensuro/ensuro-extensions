@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.16;
 
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
@@ -21,17 +19,29 @@ import {MathUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/math/Ma
  * deposit into the eTokens based on the configured allocations. On withdrawal, it withdraws from the underlying
  * eTokens proportional to the current value.
  *
+ * To be able to deposit or withdraw, the user has to be whitelisted in all the underlying eTokens.
+ *
+ * When doing a deposit, if the proportional funds can't be allocated in some of the eTokens because of
+ * minUtilizationRate() limits, they will be allocated in the last one. Only if the last one doesn't accepts the funds,
+ * it will restart the allocation attempt starting from the first one. This makes the last and the first eToken more
+ * prone to receive funds when some of the eTokens don't accept deposits.
+ *
+ * When doing a withdrawal, if some of the funds can't be withdrawn from some of the eTokens (because of
+ * totalWithdrawable() validation), they will be withdrawn from the last one. Only if the last one doesn't accepts more
+ * withdrawals, it will restart the withdrawal attempt starting from the first one. This way, the last and the first
+ * eToken are more prone to have withdrawals when some of the eTokens don't accept withdrawals.
+ *
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
 contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable {
-  using SafeERC20 for IERC20Metadata;
   using SafeCast for uint256;
   using WadRayMath for uint256;
 
   bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-  bytes32 public constant REBALANCE_ROLE = keccak256("REBALANCE_ROLE");
+  bytes32 public constant REBALANCER_ROLE = keccak256("REBALANCER_ROLE");
   bytes32 public constant CHANGE_PERCENTAGE_ROLE = keccak256("CHANGE_PERCENTAGE_ROLE");
+  bytes32 public constant REORDER_ROLE = keccak256("REORDER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
 
   struct Underlying {
@@ -100,7 +110,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
 
     // Infinite approval to the PolicyPool to pay the deposits
-    pool.currency().approve(address(pool), type(uint256).max);
+    IERC20Metadata(asset()).approve(address(pool), type(uint256).max);
   }
 
   function _wadTo16(uint256 value) internal pure returns (uint16) {
@@ -347,7 +357,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     if (balance != 0) {
       policyPool().withdraw(etkToRemove, balance);
       // NOTE: withdraw with the balanceOf will revert if not all the funds can be withdrawn
-      _depositInUnderlying(balance);
+      _depositInUnderlying(IERC20Metadata(asset()).balanceOf(address(this)));
     }
   }
 
@@ -367,7 +377,23 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
   }
 
-  function rebalance(uint256 from_, uint256 to_, uint256 amount) external onlyRole(REBALANCE_ROLE) {
+  function reorderETokens(uint256 a, uint256 b) external onlyRole(REORDER_ROLE) {
+    require(
+      a < _underlying.length && b < _underlying.length && a != b,
+      "ETokensBundleVault: values out of bounds"
+    );
+    Underlying memory aux = _underlying[a];
+    _underlying[a] = _underlying[b];
+    _underlying[b] = aux;
+    emit UnderlyingChanged(_underlying[a].etk, a, _16ToWad(_underlying[a].percentage));
+    emit UnderlyingChanged(_underlying[b].etk, b, _16ToWad(_underlying[b].percentage));
+  }
+
+  function rebalance(
+    uint256 from_,
+    uint256 to_,
+    uint256 amount
+  ) external onlyRole(REBALANCER_ROLE) {
     amount = policyPool().withdraw(_underlying[from_].etk, amount);
     policyPool().deposit(_underlying[to_].etk, amount);
   }
