@@ -214,6 +214,32 @@ describe("ETokensBundleVault contract tests", function () {
     );
   });
 
+  it("Checks only GUARDIAN_ROLE can upgrade", async () => {
+    const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "GUARDIAN_ROLE", admin);
+
+    const newImpl = await ETokensBundleVault.deploy();
+
+    await expect(vault.connect(anon).upgradeTo(newImpl.address)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "GUARDIAN_ROLE")
+    );
+
+    const tx = await vault.connect(admin).upgradeTo(newImpl.address);
+    const events = getTransactionEvents(vault.interface, await tx.wait(), "Upgraded");
+    expect(events.length).to.be.equal(1);
+
+    const underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal(jrETKs.map((etk) => etk.address));
+    expect(underlying[1]).to.deep.equal([_W("0.4"), _W("0.25"), _W("0.35")]);
+  });
+
   it("Checks addEToken validations", async () => {
     const { ETokensBundleVault, jrETKs, srETKs } = await helpers.loadFixture(deployPoolFixture);
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
@@ -346,6 +372,82 @@ describe("ETokensBundleVault contract tests", function () {
     expect(underlying[1]).to.deep.equal([_W(1)]);
   });
 
+  it("Checks change percentages validations", async () => {
+    const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "CHANGE_PERCENTAGE_ROLE", admin);
+
+    await expect(vault.connect(anon).changePercentages([_W("0.35"), _W("0.25"), _W("0.4")])).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "CHANGE_PERCENTAGE_ROLE")
+    );
+
+    await expect(vault.connect(admin).changePercentages(Array(4).fill(_W("0.25")))).to.be.revertedWith(
+      "ETokensBundleVault: must send the new percentages"
+    );
+
+    await expect(vault.connect(admin).changePercentages(Array(3).fill(_W("0.33")))).to.be.revertedWith(
+      "ETokensBundleVault: total percentage must be 100%"
+    );
+
+    // Change percentages
+    let tx = await vault.connect(admin).changePercentages([_W("0.35"), _W("0.25"), _W("0.4")]);
+    let events = getTransactionEvents(vault.interface, await tx.wait(), "UnderlyingChanged");
+    expect(events.length).to.be.equal(3);
+    expect(events.map((evt) => evt.args.index)).to.deep.equal([0, 1, 2]);
+    expect(events.map((evt) => evt.args.etk)).to.deep.equal(jrETKs.map((etk) => etk.address));
+    expect(events.map((evt) => evt.args.percentage)).to.deep.equal([_W("0.35"), _W("0.25"), _W("0.4")]);
+
+    let underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal(jrETKs.map((etk) => etk.address));
+    expect(underlying[1]).to.deep.equal([_W("0.35"), _W("0.25"), _W("0.4")]);
+  });
+
+  it("Checks reorderETokens validations", async () => {
+    const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
+    await grantRole(hre, vault, "REORDER_ROLE", admin);
+
+    await expect(vault.connect(anon).reorderETokens(0, 1)).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "REORDER_ROLE")
+    );
+
+    await expect(vault.connect(admin).reorderETokens(3, 0)).to.be.revertedWith(
+      "ETokensBundleVault: values out of bounds"
+    );
+
+    await expect(vault.connect(admin).reorderETokens(0, 4)).to.be.revertedWith(
+      "ETokensBundleVault: values out of bounds"
+    );
+
+    await expect(vault.connect(admin).reorderETokens(1, 1)).to.be.revertedWith(
+      "ETokensBundleVault: values out of bounds"
+    );
+
+    // Switch 1st with last
+    let tx = await vault.connect(admin).reorderETokens(0, 2);
+    let events = getTransactionEvents(vault.interface, await tx.wait(), "UnderlyingChanged");
+    expect(events.length).to.be.equal(2);
+    expect(events.map((evt) => evt.args.index)).to.deep.equal([0, 2]);
+    expect(events.map((evt) => evt.args.etk)).to.deep.equal([jrETKs[2].address, jrETKs[0].address]);
+    expect(events.map((evt) => evt.args.percentage)).to.deep.equal([_W("0.35"), _W("0.4")]);
+
+    let underlying = await vault.getUnderlying();
+    expect(underlying[0]).to.deep.equal([jrETKs[2].address, jrETKs[1].address, jrETKs[0].address]);
+    expect(underlying[1]).to.deep.equal([_W("0.35"), _W("0.25"), _W("0.4")]);
+  });
+
   it("Checks deposits and withdrawals without restrictions", async () => {
     const { ETokensBundleVault, jrETKs, srETKs, currency, pool } = await helpers.loadFixture(deployPoolFixture);
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
@@ -420,6 +522,78 @@ describe("ETokensBundleVault contract tests", function () {
       .to.emit(vault, "Withdraw")
       .withArgs(anon.address, anon.address, anon.address, _A("3000"), _A("2000"));
     expect(await currency.balanceOf(anon.address)).to.be.closeTo(before.add(_A(3000)), CENTS);
+  });
+
+  it("Checks deposits and withdrawals with manual rebalance", async () => {
+    const { ETokensBundleVault, jrETKs, srETKs, currency } = await helpers.loadFixture(deployPoolFixture);
+    const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.6"), _W("0")]],
+      {
+        kind: "uups",
+      }
+    );
+
+    // LP1 deposits 1K
+    await currency.connect(lp).approve(vault.address, MaxUint256);
+    await expect(vault.connect(lp).deposit(_A(1000), lp.address))
+      .to.emit(vault, "Deposit")
+      .withArgs(lp.address, lp.address, _A(1000), _A(1000));
+
+    expect(await vault.totalAssets()).to.be.equal(_A(1000));
+    expect(await vault.totalSupply()).to.be.equal(_A(1000));
+    expect(await vault.balanceOf(lp.address)).to.be.equal(_A(1000));
+
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(400)); // 1000 * .4
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(600)); // 1000 * .6
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(0)); // 1000 * 0
+
+    await grantRole(hre, vault, "REBALANCER_ROLE", admin);
+
+    await expect(vault.connect(anon).rebalance(0, 1, _A(300))).to.be.revertedWith(
+      accessControlMessage(anon.address, null, "REBALANCER_ROLE")
+    );
+
+    await expect(vault.connect(admin).rebalance(3, 0, _A(300))).to.be.revertedWith(
+      "ETokensBundleVault: values out of bounds"
+    );
+
+    await expect(vault.connect(admin).rebalance(0, 3, _A(300))).to.be.revertedWith(
+      "ETokensBundleVault: values out of bounds"
+    );
+
+    await expect(vault.connect(admin).rebalance(0, 2, _A(500))).to.be.revertedWith("amount > max withdrawable");
+
+    await expect(vault.connect(admin).rebalance(0, 2, _A(0))).to.be.revertedWith(
+      "EToken: amount to mint should be greater than zero"
+    );
+
+    await etks[1].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
+
+    await expect(vault.connect(admin).rebalance(0, 1, _A(300))).to.be.revertedWith(
+      "Deposit rejected - Utilization Rate < min"
+    );
+
+    let tx = await vault.connect(admin).rebalance(0, 2, _A(300));
+    let events = getTransactionEvents(etks[0].interface, await tx.wait(), "Transfer");
+    expect(events.length).to.be.equal(4);
+
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(100));
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(600));
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(300));
+    expect(await vault.totalAssets()).to.be.equal(_A(1000));
+    expect(await vault.totalSupply()).to.be.equal(_A(1000));
+
+    tx = await vault.connect(admin).rebalance(0, 2, MaxUint256);
+    events = getTransactionEvents(etks[0].interface, await tx.wait(), "Transfer");
+    expect(events.length).to.be.equal(4);
+
+    expect(await etks[0].balanceOf(vault.address)).to.be.equal(_A(0));
+    expect(await etks[1].balanceOf(vault.address)).to.be.equal(_A(600));
+    expect(await etks[2].balanceOf(vault.address)).to.be.equal(_A(400));
+    expect(await vault.totalAssets()).to.be.equal(_A(1000));
+    expect(await vault.totalSupply()).to.be.equal(_A(1000));
   });
 
   it("Checks deposits and withdrawals reject non-whitelisted users ", async () => {

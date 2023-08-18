@@ -394,8 +394,12 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     uint256 to_,
     uint256 amount
   ) external onlyRole(REBALANCER_ROLE) {
-    amount = policyPool().withdraw(_underlying[from_].etk, amount);
-    policyPool().deposit(_underlying[to_].etk, amount);
+    require(
+      from_ < _underlying.length && to_ < _underlying.length,
+      "ETokensBundleVault: values out of bounds"
+    );
+    policyPool().withdraw(_underlying[from_].etk, amount);
+    policyPool().deposit(_underlying[to_].etk, IERC20Metadata(asset()).balanceOf(address(this)));
   }
 
   function getUnderlying()
