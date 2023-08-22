@@ -4,7 +4,7 @@ const { expect } = require("chai");
 const { getStorageLayout } = require("@ensuro/core/js/utils");
 
 describe("Storage Gaps", () => {
-  const contracts = ["CashFlowLender", "QuadrataWhitelist", "MultiRMCashFlowLender"];
+  const contracts = ["CashFlowLender", "QuadrataWhitelist", "MultiRMCashFlowLender", "ETokensBundleVault"];
 
   for (const contract of contracts) {
     it(`${contract} has a proper storage gap`, async () => {
