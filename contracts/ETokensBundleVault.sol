@@ -38,6 +38,8 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   using SafeCast for uint256;
   using WadRayMath for uint256;
 
+  uint256 private constant HUNDRED_PERCENT = 1e18;
+
   bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
   bytes32 public constant REBALANCER_ROLE = keccak256("REBALANCER_ROLE");
   bytes32 public constant CHANGE_PERCENTAGE_ROLE = keccak256("CHANGE_PERCENTAGE_ROLE");
@@ -107,7 +109,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       totalPercentage += percentages[i];
     }
     /* WARNING: the user must check the etks are unique, they can't appear twice in the array */
-    require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
+    require(
+      totalPercentage == HUNDRED_PERCENT,
+      "ETokensBundleVault: total percentage must be 100%"
+    );
 
     // Infinite approval to the PolicyPool to pay the deposits
     IERC20Metadata(asset()).approve(address(pool), type(uint256).max);
@@ -129,6 +134,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return _underlying[0].etk.policyPool();
   }
 
+  /**
+   * @dev Returns the total assets managed by the vault. It's the sum of the vault's balance for each of the underlying
+   *      eTokens
+   */
   function totalAssets() public view virtual override returns (uint256 ret) {
     for (uint256 i; i < _underlying.length; i++) {
       ret += _underlying[i].etk.balanceOf(address(this));
@@ -195,6 +204,11 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return ret;
   }
 
+  /**
+   * @dev Distributes a given amount in the underlying eTokens trying to follow the allocation percentages configured.
+   *      If some of the eTokens don't accept the proportional deposit, it will try to allocate that money on the last
+   *      one.
+   */
   function _depositProportional(IPolicyPool pool, uint256 assets) internal returns (uint256) {
     uint256 toDeposit;
     uint256 left = assets;
@@ -217,6 +231,9 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return left - toDeposit;
   }
 
+  /**
+   * @dev Deposits a given amount in the first eToken that can receive it.
+   */
   function _depositFirst(IPolicyPool pool, uint256 amount) internal returns (uint256) {
     for (uint256 i; i < _underlying.length; i++) {
       uint256 toDeposit = MathUpgradeable.min(amount, _maxDepositInETK(_underlying[i].etk));
@@ -229,6 +246,11 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return amount;
   }
 
+  /**
+   * @dev Deposits a given amount in the underlying eTokens. It first tries to deposit the capital based on the
+   *      configured percentages (see {_depositProportional}) and if some of the funds can't be allocated restarts from
+   *      the first one (see {_depositFirst}).
+   */
   function _depositInUnderlying(uint256 assets) internal {
     uint256 left = _depositProportional(policyPool(), assets);
     if (left != 0) {
@@ -248,6 +270,11 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     _depositInUnderlying(assets);
   }
 
+  /**
+   * @dev Withdraws from the underlying eTokens in proportion to their contribution of the total assets.
+   *      If some of the eTokens don't accept the proportional withdrawal, it will try to withdraw that money from the
+   *      last one.
+   */
   function _withdrawProportional(
     IPolicyPool pool,
     uint256 assets,
@@ -274,6 +301,9 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     return left - toWithdraw;
   }
 
+  /**
+   * @dev Withdraws a given amount in the first eToken that accepts the withdrawal.
+   */
   function _withdrawFirst(IPolicyPool pool, uint256 amount) internal returns (uint256) {
     for (uint256 i; i < _underlying.length; i++) {
       uint256 toWithdraw = MathUpgradeable.min(amount, _maxWithdrawalInETK(_underlying[i].etk));
@@ -301,6 +331,19 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     super._withdraw(caller, receiver, owner, assets, shares);
   }
 
+  /**
+   * @dev Adds a new underlying eToken to the vault. The new eToken will be the last one.
+   *
+   * Requirements:
+   * - Must be called by a user with ADMIN_ROLE
+   * - The newETK must not be already in the pool and must be in the same pool as the others.
+   *
+   * Events:
+   * - Emits {UnderlyingChanged} for each eToken in the vault.
+   *
+   * @param newETK The address of the new eToken to add
+   * @param percentages The new allocation percentages, including the new one.
+   */
   function addEToken(EToken newETK, uint256[] calldata percentages) external onlyRole(ADMIN_ROLE) {
     require(
       percentages.length == _underlying.length + 1,
@@ -321,9 +364,25 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     emit UnderlyingChanged(newETK, _underlying.length, percentages[_underlying.length]);
     _underlying.push(Underlying(newETK, _wadTo16(percentages[_underlying.length])));
 
-    require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
+    require(
+      totalPercentage == HUNDRED_PERCENT,
+      "ETokensBundleVault: total percentage must be 100%"
+    );
   }
 
+  /**
+   * @dev Remove an eToken from the pool.
+   *
+   * Requirements:
+   * - Must be called by a user with ADMIN_ROLE
+   *
+   * Events:
+   * - Emits {UnderlyingChanged} for each eToken that remains in the vault, plus one event with index = MAX_UINT with
+   *   the address of the removed eToken.
+   *
+   * @param etkToRemove The address of the eToken to remove
+   * @param percentages The new allocation percentages, excluding the removed one
+   */
   function removeEToken(
     EToken etkToRemove,
     uint256[] calldata percentages
@@ -349,7 +408,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       found || _underlying[_underlying.length - 1].etk == etkToRemove,
       "ETokensBundleVault: token to remove not found!"
     );
-    require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
+    require(
+      totalPercentage == HUNDRED_PERCENT,
+      "ETokensBundleVault: total percentage must be 100%"
+    );
     _underlying.pop();
     emit UnderlyingChanged(etkToRemove, type(uint256).max, type(uint256).max);
     // Withdraw all the funds from removed eToken and deposit them
@@ -361,6 +423,17 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     }
   }
 
+  /**
+   * @dev Changes the deposit allocation percentages for the underlying eTokens
+   *
+   * Requirements:
+   * - Must be called by a user with CHANGE_PERCENTAGE_ROLE
+   *
+   * Events:
+   * - Emits {UnderlyingChanged} for each eToken with the index and the new percentage.
+   *
+   * @param percentages The new allocation percentages. Sum must be 1e18 (100%).
+   */
   function changePercentages(
     uint256[] calldata percentages
   ) external onlyRole(CHANGE_PERCENTAGE_ROLE) {
@@ -374,9 +447,24 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       emit UnderlyingChanged(_underlying[i].etk, i, percentages[i]);
       totalPercentage += percentages[i];
     }
-    require(totalPercentage == 1e18, "ETokensBundleVault: total percentage must be 100%");
+    require(
+      totalPercentage == HUNDRED_PERCENT,
+      "ETokensBundleVault: total percentage must be 100%"
+    );
   }
 
+  /**
+   * @dev Swaps the order of two underlying eTokens
+   *
+   * Requirements:
+   * - Must be called by a user with REORDER_ROLE
+   *
+   * Events:
+   * - Emits {UnderlyingChanged} for both eTokens with the new indexes.
+   *
+   * @param a The index of the first eToken
+   * @param b The index of the second eToken
+   */
   function reorderETokens(uint256 a, uint256 b) external onlyRole(REORDER_ROLE) {
     require(
       a < _underlying.length && b < _underlying.length && a != b,
@@ -389,6 +477,17 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     emit UnderlyingChanged(_underlying[b].etk, b, _16ToWad(_underlying[b].percentage));
   }
 
+  /**
+   * @dev Moves some funds from one eToken to the other
+   *
+   * Requirements:
+   * - Must be called by a user with REBALANCER_ROLE
+   * - The amount must be withdrawable from the `from_` eToken and depositable in the `to_` eToken
+   *
+   * @param from_ The index of the eToken where the funds will be withdrawn
+   * @param to_ The index of the eToken where the funds will be deposited
+   * @param amount The amount to withdraw
+   */
   function rebalance(
     uint256 from_,
     uint256 to_,
@@ -402,6 +501,9 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     policyPool().deposit(_underlying[to_].etk, IERC20Metadata(asset()).balanceOf(address(this)));
   }
 
+  /**
+   * @dev Returns the list of underlying eTokens and the deposit allocation percentages
+   */
   function getUnderlying()
     external
     view
