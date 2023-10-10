@@ -235,6 +235,19 @@ contract ERC4626CashFlowLender is
   }
 
   /**
+   *
+   * Repays the debt
+   *
+   * @param amount The amount to pay
+   */
+  function repayDebt(uint256 amount) external {
+    require(_debt > 0, "ERC4626CashFlowLender: you can't repay because there's no debt");
+    amount = Math.min(uint256(_debt), amount);
+    _decreaseDebt(amount);
+    _currency().safeTransferFrom(_msgSender(), address(this), amount);
+  }
+
+  /**
    * @dev Allows a customer to borrow funds.
    *
    * This function facilitates borrowing by customers, increasing their debt and transferring the borrowed funds.
