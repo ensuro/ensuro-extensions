@@ -266,6 +266,32 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200)); // dont change
     expect(await currency.balanceOf(erc4626cfl.address)).to.be.equal(_A(700)); // 800 prev - 100 withdraw
     expect(await erc4626cfl.totalAssets()).to.be.equal(_A(900)); // 1000 prev - 100 withdraw
+
+    const lp2before = await currency.balanceOf(lp2.address);
+
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(1000))).to.be.revertedWith("ERC20: insufficient allowance");
+    await currency.connect(lp2).approve(erc4626cfl.address, _A(1000));
+
+    // Repay partial debt
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(50)))
+      .to.emit(erc4626cfl, "DebtChanged")
+      .withArgs(_A(150))
+      .to.emit(currency, "Transfer")
+      .withArgs(lp2.address, erc4626cfl.address, _A(50));
+
+    // Repay all debt
+    await expect(erc4626cfl.connect(lp2).repayDebt(MaxUint256))
+      .to.emit(erc4626cfl, "DebtChanged")
+      .withArgs(_A(0))
+      .to.emit(currency, "Transfer")
+      .withArgs(lp2.address, erc4626cfl.address, _A(150));
+
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+    expect(lp2before.sub(await currency.balanceOf(lp2.address))).to.equal(_A(200));
+
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(1000))).to.be.revertedWith(
+      "ERC4626CashFlowLender: you can't repay because there's no debt"
+    );
   });
 
   it("Address without LP_ROLE can't deposit/mint", async () => {

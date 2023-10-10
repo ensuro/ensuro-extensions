@@ -228,10 +228,23 @@ contract ERC4626CashFlowLender is
       _debt < 0 && int256(amount) <= -_debt,
       "ERC4626CashFlowLender: amount must be less than debt"
     );
-    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to pay the debt");
+    require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to cashout");
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
     emit CashOutPayout(destination, amount);
+  }
+
+  /**
+   *
+   * Repays the debt
+   *
+   * @param amount The amount to pay
+   */
+  function repayDebt(uint256 amount) external {
+    require(_debt > 0, "ERC4626CashFlowLender: you can't repay because there's no debt");
+    amount = Math.min(uint256(_debt), amount);
+    _decreaseDebt(amount);
+    _currency().safeTransferFrom(_msgSender(), address(this), amount);
   }
 
   /**
