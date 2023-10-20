@@ -67,6 +67,13 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     _currency().approve(address(_pool()), type(uint256).max);
   }
 
+  /**
+   * @dev See {IERC165-supportsInterface}.
+   */
+  function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+    return interfaceId == type(IPolicyHolder).interfaceId || super.supportsInterface(interfaceId);
+  }
+
   // solhint-disable-next-line no-empty-blocks
   function _authorizeUpgrade(address newImpl) internal view override onlyRole(GUARDIAN_ROLE) {}
 

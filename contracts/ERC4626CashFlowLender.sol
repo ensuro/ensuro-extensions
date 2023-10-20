@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.16;
 
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
+import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
+import {Policy} from "@ensuro/core/contracts/Policy.sol";
+import {SignedBucketRiskModule} from "@ensuro/core/contracts/SignedBucketRiskModule.sol";
+import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
+
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {IERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/interfaces/IERC165Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
-import {SignedBucketRiskModule} from "@ensuro/core/contracts/SignedBucketRiskModule.sol";
-import {Policy} from "@ensuro/core/contracts/Policy.sol";
-import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
-import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title CashFlow Lender Module that tracks ownership
@@ -88,6 +90,13 @@ contract ERC4626CashFlowLender is
     _riskModule = riskModule_;
     // Infinite approval to the PolicyPool to pay the premiums
     _currency().approve(address(_pool()), type(uint256).max);
+  }
+
+  /**
+   * @dev See {IERC165-supportsInterface}.
+   */
+  function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+    return interfaceId == type(IPolicyHolder).interfaceId || super.supportsInterface(interfaceId);
   }
 
   // solhint-disable-next-line no-empty-blocks
