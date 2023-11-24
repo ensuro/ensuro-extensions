@@ -64,14 +64,18 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    * @dev Initializes the ERC4626CashFlowLender
    */
   function initialize(
+    string memory name_,
+    string memory symbol_,
     EToken[] calldata etks,
     uint256[] calldata percentages
   ) public virtual initializer {
-    __ETokensBundleVault_init(etks, percentages);
+    __ETokensBundleVault_init(name_, symbol_, etks, percentages);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __ETokensBundleVault_init(
+    string memory name_,
+    string memory symbol_,
     EToken[] calldata etks,
     uint256[] calldata percentages
   ) internal onlyInitializing {
@@ -79,6 +83,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     __AccessControl_init();
     require(etks.length > 0, "ETokensBundleVault: the vault must have always at least one ETK");
     __ERC4626_init(IERC20Upgradeable(address(etks[0].policyPool().currency())));
+    __ERC20_init(name_, symbol_);
     __ETokensBundleVault_init_unchained(etks, percentages);
   }
 
