@@ -33,9 +33,11 @@ const ETokenParameter = {
 
 describe("ETokensBundleVault contract tests", function () {
   let _A;
-  let anon, cust, lp, lp2, admin, resolver;
+  let anon, cust, lp, lp2, lp3, admin, resolver;
   let CENTS;
   let ONE;
+  const NAME = "Bundle Vault";
+  const SYMB = "etkBund";
 
   beforeEach(async () => {
     [, lp, lp2, lp3, cust, resolver, creator, anon, admin] = await ethers.getSigners();
@@ -146,22 +148,26 @@ describe("ETokensBundleVault contract tests", function () {
 
   it("Initializes only with correct parameters", async () => {
     const { ETokensBundleVault, jrETKs, currency } = await helpers.loadFixture(deployPoolFixture);
-    await expect(hre.upgrades.deployProxy(ETokensBundleVault, [[], []], { kind: "uups" })).to.be.revertedWith(
-      "ETokensBundleVault: the vault must have always at least one ETK"
-    );
     await expect(
-      hre.upgrades.deployProxy(ETokensBundleVault, [[jrETKs[0].address], []], { kind: "uups" })
+      hre.upgrades.deployProxy(ETokensBundleVault, [NAME, SYMB, [], []], { kind: "uups" })
+    ).to.be.revertedWith("ETokensBundleVault: the vault must have always at least one ETK");
+    await expect(
+      hre.upgrades.deployProxy(ETokensBundleVault, [NAME, SYMB, [jrETKs[0].address], []], { kind: "uups" })
     ).to.be.revertedWith("ETokensBundleVault: etks and percentages lengths differ");
     await expect(
-      hre.upgrades.deployProxy(ETokensBundleVault, [[jrETKs[0].address], [_W("0.4")]], { kind: "uups" })
+      hre.upgrades.deployProxy(ETokensBundleVault, [NAME, SYMB, [jrETKs[0].address], [_W("0.4")]], { kind: "uups" })
     ).to.be.revertedWith("ETokensBundleVault: total percentage must be 100%");
     const allJrs = jrETKs.map((etk) => etk.address);
     await expect(
-      hre.upgrades.deployProxy(ETokensBundleVault, [allJrs, Array(3).fill(_W("0.4"))], { kind: "uups" })
+      hre.upgrades.deployProxy(ETokensBundleVault, [NAME, SYMB, allJrs, Array(3).fill(_W("0.4"))], { kind: "uups" })
     ).to.be.revertedWith("ETokensBundleVault: total percentage must be 100%");
-    let vault = await hre.upgrades.deployProxy(ETokensBundleVault, [allJrs, [_W("0.4"), _W("0.25"), _W("0.35")]], {
-      kind: "uups",
-    });
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [NAME, SYMB, allJrs, [_W("0.4"), _W("0.25"), _W("0.35")]],
+      {
+        kind: "uups",
+      }
+    );
     const receipt = await vault.deployTransaction.wait();
     let events = getTransactionEvents(vault.interface, receipt, "UnderlyingChanged");
     expect(events.length).to.be.equal(3);
@@ -169,10 +175,12 @@ describe("ETokensBundleVault contract tests", function () {
     expect(events.map((evt) => evt.args.etk)).to.deep.equal(allJrs);
 
     expect(await vault.asset()).to.be.equal(currency.address);
+    expect(await vault.name()).to.be.equal(NAME);
+    expect(await vault.symbol()).to.be.equal(SYMB);
     expect(await vault.decimals()).to.be.equal(await currency.decimals());
 
     // Test it can't be initialized twice
-    await expect(vault.initialize(allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
+    await expect(vault.initialize(NAME, SYMB, allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
       "Initializable: contract is already initialized"
     );
 
@@ -196,10 +204,7 @@ describe("ETokensBundleVault contract tests", function () {
     await expect(
       hre.upgrades.deployProxy(
         ETokensBundleVault,
-        [
-          [jrETKs[0].address, alienETK.address],
-          [_W("0.4"), _W("0.6")],
-        ],
+        [NAME, SYMB, [jrETKs[0].address, alienETK.address], [_W("0.4"), _W("0.6")]],
         { kind: "uups" }
       )
     ).to.be.revertedWith("ETokensBundleVault: Can't mix eTokens from different PolicyPool");
@@ -209,7 +214,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
     const impl = await ETokensBundleVault.deploy();
     const allJrs = jrETKs.map((etk) => etk.address);
-    await expect(impl.initialize(allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
+    await expect(impl.initialize(NAME, SYMB, allJrs, [_W("0.4"), _W("0.25"), _W("0.35")])).to.be.revertedWith(
       "Initializable: contract is already initialized"
     );
   });
@@ -218,7 +223,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -245,7 +250,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -288,7 +293,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -312,7 +317,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs, srETKs } = await helpers.loadFixture(deployPoolFixture);
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -376,7 +381,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -412,7 +417,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs } = await helpers.loadFixture(deployPoolFixture);
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -453,7 +458,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -529,7 +534,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.6"), _W("0")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.6"), _W("0")]],
       {
         kind: "uups",
       }
@@ -600,7 +605,7 @@ describe("ETokensBundleVault contract tests", function () {
     const { ETokensBundleVault, jrETKs, currency, wl } = await helpers.loadFixture(deployPoolFixture);
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, jrETKs.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -661,7 +666,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
@@ -793,9 +798,13 @@ describe("ETokensBundleVault contract tests", function () {
   it("Checks inflation attack is unprofitable", async () => {
     const { ETokensBundleVault, jrETKs, currency, pool } = await helpers.loadFixture(deployPoolFixture);
     const etks = [jrETKs[1]]; // etks without WL
-    let vault = await hre.upgrades.deployProxy(ETokensBundleVault, [etks.map((etk) => etk.address), [_W("1")]], {
-      kind: "uups",
-    });
+    let vault = await hre.upgrades.deployProxy(
+      ETokensBundleVault,
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("1")]],
+      {
+        kind: "uups",
+      }
+    );
 
     const victimDeposit = _A(500);
 
@@ -843,7 +852,7 @@ describe("ETokensBundleVault contract tests", function () {
     const etks = [jrETKs[1], srETKs[0], srETKs[2]]; // etks without WL
     let vault = await hre.upgrades.deployProxy(
       ETokensBundleVault,
-      [etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
+      [NAME, SYMB, etks.map((etk) => etk.address), [_W("0.4"), _W("0.25"), _W("0.35")]],
       {
         kind: "uups",
       }
