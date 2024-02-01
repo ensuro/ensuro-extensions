@@ -131,9 +131,13 @@ describe("CashFlowLender contract tests", function () {
   async function deployPoolAndERC4626CFLFixture() {
     const { rm, accessManager, currency, ...others } = await deployPoolFixture();
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
-    const cfLender = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rm.address, currency.address], {
-      kind: "uups",
-    });
+    const cfLender = await hre.upgrades.deployProxy(
+      ERC4626CashFlowLender,
+      ["CFL", "ensCFL", rm.address, currency.address],
+      {
+        kind: "uups",
+      }
+    );
 
     await accessManager.grantComponentRole(rm.address, await rm.RESOLVER_ROLE(), cfLender.address);
     await accessManager.grantComponentRole(rm.address, await rm.PRICER_ROLE(), cfLender.address);
