@@ -52,12 +52,19 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   /**
    * @dev Initializes the ERC4626CashFlowLender
    */
-  function initialize(SignedQuoteRiskModule riskModule_, IERC20Upgradeable asset_) public virtual initializer {
-    __ERC4626CashFlowLender_init(riskModule_, asset_);
+  function initialize(
+    string memory name_,
+    string memory symbol_,
+    SignedQuoteRiskModule riskModule_,
+    IERC20Upgradeable asset_
+  ) public virtual initializer {
+    __ERC4626CashFlowLender_init(name_, symbol_, riskModule_, asset_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __ERC4626CashFlowLender_init(
+    string memory name_,
+    string memory symbol_,
     SignedQuoteRiskModule riskModule_,
     IERC20Upgradeable asset_
   ) internal onlyInitializing {
@@ -65,6 +72,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     __AccessControl_init();
     require(address(asset_) != address(0), "ERC4626CashFlowLender: asset_ cannot be zero address");
     __ERC4626_init(asset_);
+    __ERC20_init(name_, symbol_);
     __ERC4626CashFlowLender_init_unchained(riskModule_);
   }
 

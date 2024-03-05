@@ -77,9 +77,13 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), signer);
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
-    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rmAddr, currencyAddr], {
-      kind: "uups",
-    });
+    const erc4626cfl = await hre.upgrades.deployProxy(
+      ERC4626CashFlowLender,
+      ["CFL", "ensCFL", rmAddr, currencyAddr],
+      {
+        kind: "uups",
+      }
+    );
 
     await accessManager.grantComponentRole(rm, await rm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), erc4626cfl);
@@ -122,6 +126,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.riskModule()).to.equal(rm);
     expect(await erc4626cfl.asset()).to.equal(currency);
     expect(await erc4626cfl.totalAssets()).to.equal(0);
+    expect(await erc4626cfl.name()).to.equal("CFL");
+    expect(await erc4626cfl.symbol()).to.equal("ensCFL");
   });
 
   it("Should not allow address(0) for the RM and Asset", async () => {
@@ -129,13 +135,13 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [ZeroAddress, currencyAddr], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, ["CFL", "ensCFL", ZeroAddress, currencyAddr], {
         kind: "uups",
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: riskModule_ cannot be zero address");
 
     await expect(
-      hre.upgrades.deployProxy(ERC4626CashFlowLender, [rmAddr, ZeroAddress], {
+      hre.upgrades.deployProxy(ERC4626CashFlowLender, ["CFL", "ensCFL", rmAddr, ZeroAddress], {
         kind: "uups",
       })
     ).to.be.revertedWith("ERC4626CashFlowLender: asset_ cannot be zero address");

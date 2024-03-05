@@ -134,7 +134,7 @@ describe("CashFlowLender contract tests", function () {
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
     const rmAddr = await ethers.resolveAddress(rm);
     const currencyAddr = await ethers.resolveAddress(currency);
-    const cfLender = await hre.upgrades.deployProxy(ERC4626CashFlowLender, [rmAddr, currencyAddr], {
+    const cfLender = await hre.upgrades.deployProxy(ERC4626CashFlowLender, ["CFL", "ensCFL", rmAddr, currencyAddr], {
       kind: "uups",
     });
 
