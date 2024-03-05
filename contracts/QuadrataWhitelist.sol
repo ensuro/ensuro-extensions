@@ -3,7 +3,6 @@ pragma solidity 0.8.16;
 
 import {LPManualWhitelist} from "@ensuro/core/contracts/LPManualWhitelist.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
-import {PolicyPoolComponent} from "@ensuro/core/contracts/PolicyPoolComponent.sol";
 
 import {IQuadReader} from "@quadrata/contracts/interfaces/IQuadReader.sol";
 import {IQuadPassportStore} from "@quadrata/contracts/interfaces/IQuadPassportStore.sol";
@@ -60,12 +59,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     uint256 requiredAMLScore_,
     bytes32[] calldata requiredAttributes_
   ) public initializer {
-    __QuadrataWhitelist_init(
-      defaultStatus,
-      quadrataWhitelistMode,
-      requiredAMLScore_,
-      requiredAttributes_
-    );
+    __QuadrataWhitelist_init(defaultStatus, quadrataWhitelistMode, requiredAMLScore_, requiredAttributes_);
   }
 
   function initialize(WhitelistStatus calldata) public override initializer {
@@ -80,11 +74,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     bytes32[] calldata requiredAttributes_
   ) internal onlyInitializing {
     __LPManualWhitelist_init(defaultStatus);
-    __QuadrataWhitelist_init_unchained(
-      quadrataWhitelistMode,
-      requiredAMLScore_,
-      requiredAttributes_
-    );
+    __QuadrataWhitelist_init_unchained(quadrataWhitelistMode, requiredAMLScore_, requiredAttributes_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
@@ -117,10 +107,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     bytes32 attributeKey,
     IQuadPassportStore.Attribute memory attribute
   ) internal view {
-    require(
-      attribute.value != bytes32(0),
-      "User has no passport or is missing required attributes"
-    );
+    require(attribute.value != bytes32(0), "User has no passport or is missing required attributes");
 
     if (attributeKey == ATTRIBUTE_AML) {
       require(uint256(attribute.value) <= _requiredAMLScore, "AML score > required AML score");
@@ -137,10 +124,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
   function quadrataWhitelist(address provider) public onlyComponentRole(QUADRATA_WHITELIST_ROLE) {
     require(provider != address(0), "Provider cannot be the zero address");
 
-    IQuadPassportStore.Attribute[] memory attributes = _reader.getAttributesBulk(
-      provider,
-      _requiredAttributes
-    );
+    IQuadPassportStore.Attribute[] memory attributes = _reader.getAttributesBulk(provider, _requiredAttributes);
 
     require(attributes.length == _requiredAttributes.length, "Sanity check failed");
 
@@ -152,9 +136,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     _whitelistAddress(provider, _whitelistMode);
   }
 
-  function setWhitelistMode(
-    WhitelistStatus calldata newMode
-  ) public onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+  function setWhitelistMode(WhitelistStatus calldata newMode) public onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
     _whitelistMode = newMode;
     emit QuadrataWhitelistModeChanged(_whitelistMode);
   }
@@ -167,9 +149,7 @@ contract QuadrataWhitelist is LPManualWhitelist {
     return _requiredAMLScore;
   }
 
-  function setRequiredAMLScore(
-    uint256 requiredAMLScore_
-  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+  function setRequiredAMLScore(uint256 requiredAMLScore_) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
     _requiredAMLScore = requiredAMLScore_;
     emit RequiredAMLScoreChanged(_requiredAMLScore);
   }
@@ -190,20 +170,15 @@ contract QuadrataWhitelist is LPManualWhitelist {
     return _requiredAttributes;
   }
 
-  function addRequiredAttribute(
-    bytes32 attribute
-  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
-    for (uint256 i = 0; i < _requiredAttributes.length; i++)
-      if (_requiredAttributes[i] == attribute) return;
+  function addRequiredAttribute(bytes32 attribute) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+    for (uint256 i = 0; i < _requiredAttributes.length; i++) if (_requiredAttributes[i] == attribute) return;
 
     // TODO: validate the attribute?
     _requiredAttributes.push(attribute);
     emit RequiredAttributeAdded(attribute);
   }
 
-  function removeRequiredAttribute(
-    bytes32 attribute
-  ) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
+  function removeRequiredAttribute(bytes32 attribute) external onlyComponentRole(LP_WHITELIST_ADMIN_ROLE) {
     for (uint256 i = 0; i < _requiredAttributes.length; i++)
       if (_requiredAttributes[i] == attribute) {
         _requiredAttributes[i] = _requiredAttributes[_requiredAttributes.length - 1];

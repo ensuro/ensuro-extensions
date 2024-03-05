@@ -9,7 +9,6 @@ import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModul
 
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {IERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/interfaces/IERC165Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -26,12 +25,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract ERC4626CashFlowLender is
-  AccessControlUpgradeable,
-  UUPSUpgradeable,
-  ERC4626Upgradeable,
-  IPolicyHolder
-{
+contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable, IPolicyHolder {
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
@@ -58,10 +52,7 @@ contract ERC4626CashFlowLender is
   /**
    * @dev Initializes the ERC4626CashFlowLender
    */
-  function initialize(
-    SignedQuoteRiskModule riskModule_,
-    IERC20Upgradeable asset_
-  ) public virtual initializer {
+  function initialize(SignedQuoteRiskModule riskModule_, IERC20Upgradeable asset_) public virtual initializer {
     __ERC4626CashFlowLender_init(riskModule_, asset_);
   }
 
@@ -78,13 +69,8 @@ contract ERC4626CashFlowLender is
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __ERC4626CashFlowLender_init_unchained(
-    SignedQuoteRiskModule riskModule_
-  ) internal onlyInitializing {
-    require(
-      address(riskModule_) != address(0),
-      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
-    );
+  function __ERC4626CashFlowLender_init_unchained(SignedQuoteRiskModule riskModule_) internal onlyInitializing {
+    require(address(riskModule_) != address(0), "ERC4626CashFlowLender: riskModule_ cannot be zero address");
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
     _riskModule = riskModule_;
@@ -155,14 +141,8 @@ contract ERC4626CashFlowLender is
   }
 
   function setRiskModule(SignedQuoteRiskModule riskModule_) external onlyRole(CHANGE_RM_ROLE) {
-    require(
-      address(riskModule_) != address(0),
-      "ERC4626CashFlowLender: riskModule_ cannot be zero address"
-    );
-    require(
-      riskModule_.policyPool() == _pool(),
-      "ERC4626CashFlowLender: new riskModule must belong to the same pool"
-    );
+    require(address(riskModule_) != address(0), "ERC4626CashFlowLender: riskModule_ cannot be zero address");
+    require(riskModule_.policyPool() == _pool(), "ERC4626CashFlowLender: new riskModule must belong to the same pool");
     _riskModule = riskModule_;
     emit RiskModuleChanged(_riskModule);
   }
@@ -170,20 +150,14 @@ contract ERC4626CashFlowLender is
   /**
    * @dev See {IERC4626-deposit}.
    */
-  function deposit(
-    uint256 assets,
-    address receiver
-  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
+  function deposit(uint256 assets, address receiver) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.deposit(assets, receiver);
   }
 
   /**
    * @dev See {IERC4626-mint}.
    */
-  function mint(
-    uint256 shares,
-    address receiver
-  ) public virtual override onlyRole(LP_ROLE) returns (uint256) {
+  function mint(uint256 shares, address receiver) public virtual override onlyRole(LP_ROLE) returns (uint256) {
     return super.mint(shares, receiver);
   }
 
@@ -233,10 +207,7 @@ contract ERC4626CashFlowLender is
    * @param amount The amount to pay
    */
   function cashOutPayouts(uint256 amount, address destination) external onlyRole(CUSTOMER_ROLE) {
-    require(
-      _debt < 0 && int256(amount) <= -_debt,
-      "ERC4626CashFlowLender: amount must be less than debt"
-    );
+    require(_debt < 0 && int256(amount) <= -_debt, "ERC4626CashFlowLender: amount must be less than debt");
     require(_balance() >= amount, "ERC4626CashFlowLender: Not enough balance to cashout");
     _increaseDebt(amount);
     _currency().transfer(destination, amount);
@@ -461,10 +432,7 @@ contract ERC4626CashFlowLender is
     _increaseDebt(balanceBefore - _balance());
   }
 
-  function resolvePolicy(
-    Policy.PolicyData calldata policy,
-    uint256 payout
-  ) external onlyRole(RESOLVER_ROLE) {
+  function resolvePolicy(Policy.PolicyData calldata policy, uint256 payout) external onlyRole(RESOLVER_ROLE) {
     SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
   }
 
@@ -491,12 +459,7 @@ contract ERC4626CashFlowLender is
     }
   }
 
-  function onERC721Received(
-    address,
-    address,
-    uint256,
-    bytes calldata
-  ) external pure override returns (bytes4) {
+  function onERC721Received(address, address, uint256, bytes calldata) external pure override returns (bytes4) {
     return IERC721Receiver.onERC721Received.selector;
   }
 
@@ -504,12 +467,7 @@ contract ERC4626CashFlowLender is
     return IPolicyHolder.onPolicyExpired.selector;
   }
 
-  function onPayoutReceived(
-    address,
-    address,
-    uint256,
-    uint256 amount
-  ) external override returns (bytes4) {
+  function onPayoutReceived(address, address, uint256, uint256 amount) external override returns (bytes4) {
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _decreaseDebt(amount);
     return IPolicyHolder.onPayoutReceived.selector;

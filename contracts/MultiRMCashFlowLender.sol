@@ -39,9 +39,7 @@ contract MultiRMCashFlowLender is CashFlowLender {
    *
    * @param riskModule_ The new address of the new riskModule
    */
-  function setActiveRiskModule(
-    SignedQuoteRiskModule riskModule_
-  ) external onlyRole(ACTIVE_RM_ADMIN_ROLE) {
+  function setActiveRiskModule(SignedQuoteRiskModule riskModule_) external onlyRole(ACTIVE_RM_ADMIN_ROLE) {
     require(
       address(riskModule_) == address(0) || riskModule_.policyPool() == _riskModule.policyPool(),
       "The new risk module has to be part of the same pool"

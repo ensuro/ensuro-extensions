@@ -1,11 +1,16 @@
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const { _W, amountFunction } = require("@ensuro/core/js/utils");
-const { MaxUint256 } = require("ethers").constants;
+const { ethers, MaxUint256 } = require("ethers");
 
 const _A = amountFunction(6);
 
-async function defaultPolicyParams({ rmAddress, payout, premium, lossProb, expiration, policyData, validUntil }) {
+function getAddress(addressable) {
+  return addressable.address || addressable.target || addressable;
+}
+
+async function defaultPolicyParams({ rm, payout, premium, lossProb, expiration, policyData, validUntil }) {
   const now = await helpers.time.latest();
+  const rmAddress = rm ? await ethers.resolveAddress(rm) : rm;
   return {
     rmAddress,
     payout: payout || _A(1000),
@@ -27,13 +32,13 @@ function newPolicy(rm, sender, policyParams, onBehalfOf, signature, method) {
     onBehalfOf.address,
     policyParams.policyData,
     signature.r,
-    signature._vs,
+    signature.yParityAndS,
     policyParams.validUntil
   );
 }
 
 async function defaultBucketPolicyParams({
-  rmAddress,
+  rm,
   payout,
   premium,
   lossProb,
@@ -43,6 +48,7 @@ async function defaultBucketPolicyParams({
   validUntil,
 }) {
   const now = await helpers.time.latest();
+  const rmAddress = rm ? await ethers.resolveAddress(rm) : rm;
   return {
     rmAddress,
     payout: payout || _A(1000),
@@ -58,7 +64,7 @@ async function defaultBucketPolicyParams({
 function newBucketPolicy(cfl, rm, sender, policyParams, signature, method) {
   if (sender !== undefined) cfl = cfl.connect(sender);
   return cfl[method || "newPolicyWithRm"](
-    rm.address,
+    getAddress(rm),
     policyParams.payout,
     policyParams.premium,
     policyParams.lossProb,
@@ -66,7 +72,7 @@ function newBucketPolicy(cfl, rm, sender, policyParams, signature, method) {
     policyParams.policyData,
     policyParams.bucketId,
     signature.r,
-    signature._vs,
+    signature.yParityAndS,
     policyParams.validUntil
   );
 }
@@ -78,11 +84,11 @@ function makeBatchParams(policyParams, signatures, rm) {
   const expiration = policyParams.map((pp) => pp.expiration);
   const policyData = policyParams.map((pp) => pp.policyData);
   const quoteSignatureR = signatures.map((s) => s.r);
-  const quoteSignatureVS = signatures.map((s) => s._vs);
+  const quoteSignatureVS = signatures.map((s) => s.yParityAndS);
   const validUntil = policyParams.map((pp) => pp.validUntil);
   if (rm) {
     const bucketId = policyParams.map((pp) => pp.bucketId);
-    const riskModules = policyParams.map(() => rm.address);
+    const riskModules = policyParams.map(() => getAddress(rm));
     return [
       riskModules,
       payout,

@@ -16,10 +16,7 @@ contract PassportInspector {
   }
 
   function getAttributesBulk(address account, bytes32[] calldata _attributes) public {
-    IQuadPassportStore.Attribute[] memory attributes = _reader.getAttributesBulk(
-      account,
-      _attributes
-    );
+    IQuadPassportStore.Attribute[] memory attributes = _reader.getAttributesBulk(account, _attributes);
 
     for (uint256 i = 0; i < _attributes.length; i++) {
       emit PassportAttributes(_attributes[i], attributes[i].value);
