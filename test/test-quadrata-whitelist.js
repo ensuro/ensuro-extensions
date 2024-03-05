@@ -51,7 +51,7 @@ describe("Quadrata whitelist", () => {
     let events = await whitelist.queryFilter(whitelist.filters.QuadrataWhitelistModeChanged());
     expect(events.length).to.equal(1);
     const whitelistModeEvent = events[0];
-    expect(whitelistModeEvent.event).to.equal("QuadrataWhitelistModeChanged");
+    expect(whitelistModeEvent.fragment.name).to.equal("QuadrataWhitelistModeChanged");
     expect(whitelistModeEvent.args.newMode.deposit).to.equal(WhitelistStatus.whitelisted);
     expect(whitelistModeEvent.args.newMode.withdraw).to.equal(WhitelistStatus.notdefined);
     expect(whitelistModeEvent.args.newMode.sendTransfer).to.equal(WhitelistStatus.notdefined);
@@ -60,7 +60,7 @@ describe("Quadrata whitelist", () => {
     events = await whitelist.queryFilter(whitelist.filters.RequiredAMLScoreChanged());
     expect(events.length).to.equal(1);
     const requiredAMLScoreEvent = events[0];
-    expect(requiredAMLScoreEvent.event).to.equal("RequiredAMLScoreChanged");
+    expect(requiredAMLScoreEvent.fragment.name).to.equal("RequiredAMLScoreChanged");
     expect(requiredAMLScoreEvent.args.requiredAMLScore).to.equal(requiredAMLScore);
 
     events = await whitelist.queryFilter(whitelist.filters.RequiredAttributeAdded());
