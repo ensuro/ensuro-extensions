@@ -33,6 +33,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   bytes32 public constant BORROWER_ROLE = keccak256("BORROWER_ROLE");
   bytes32 public constant CUSTOMER_ROLE = keccak256("CUSTOMER_ROLE");
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
+  bytes32 public constant OWN_POLICY_CREATOR_ROLE = keccak256("OWN_POLICY_CREATOR_ROLE");
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
   bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
@@ -309,6 +310,38 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     return policyId;
   }
 
+  function newPolicyOnBehalfOf(
+    address riskModule_,
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    address onBehalfOf,
+    uint256 bucketId,
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) external onlyRole(OWN_POLICY_CREATOR_ROLE) returns (uint256 policyId) {
+    uint256 balanceBefore = _balance();
+    _newPolicy(
+      riskModule_,
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      onBehalfOf,
+      bucketId,
+      policyData,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    _increaseDebt(balanceBefore - _balance());
+    return policyId;
+  }
+
   /**
    * @dev Creates several policies paid by this contract and increases the debt.
    *
@@ -333,37 +366,65 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     uint40[] memory quoteValidUntil
   ) external onlyRole(POLICY_CREATOR_ROLE) {
     uint256 balanceBefore = _balance();
-
     for (uint256 i = 0; i < payout.length; i++) {
-      if (bucketId[i] == type(uint256).max) {
-        SignedQuoteRiskModule(riskModules[i]).newPolicy(
-          payout[i],
-          premium[i],
-          lossProb[i],
-          expiration[i],
-          address(this),
-          policyData[i],
-          quoteSignatureR[i],
-          quoteSignatureVS[i],
-          quoteValidUntil[i]
-        );
-      } else {
-        SignedBucketRiskModule(riskModules[i]).newPolicy(
-          payout[i],
-          premium[i],
-          lossProb[i],
-          expiration[i],
-          address(this),
-          policyData[i],
-          bucketId[i],
-          quoteSignatureR[i],
-          quoteSignatureVS[i],
-          quoteValidUntil[i]
-        );
-      }
+      _newPolicy(
+        riskModules[i],
+        payout[i],
+        premium[i],
+        lossProb[i],
+        expiration[i],
+        address(this),
+        bucketId[i],
+        policyData[i],
+        quoteSignatureR[i],
+        quoteSignatureVS[i],
+        quoteValidUntil[i]
+      );
     }
     // Increases the debt
     _increaseDebt(balanceBefore - _balance());
+  }
+
+  function _newPolicy(
+    address riskModule_,
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    address onBehalfOf,
+    uint256 bucketId,
+    bytes32 policyData,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) internal returns (uint256 policyId) {
+    if (bucketId == type(uint256).max) {
+      policyId = SignedQuoteRiskModule(riskModule_).newPolicy(
+        payout,
+        premium,
+        lossProb,
+        expiration,
+        onBehalfOf,
+        policyData,
+        quoteSignatureR,
+        quoteSignatureVS,
+        quoteValidUntil
+      );
+    } else {
+      policyId = SignedBucketRiskModule(riskModule_).newPolicy(
+        payout,
+        premium,
+        lossProb,
+        expiration,
+        onBehalfOf,
+        policyData,
+        bucketId,
+        quoteSignatureR,
+        quoteSignatureVS,
+        quoteValidUntil
+      );
+    }
+    return policyId;
   }
 
   /**

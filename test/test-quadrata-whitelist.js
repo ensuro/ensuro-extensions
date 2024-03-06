@@ -6,6 +6,7 @@ const { WhitelistStatus } = require("@ensuro/core/js/enums");
 const { getRole, accessControlMessage } = require("@ensuro/core/js/utils");
 
 const { fork } = require("./utils");
+const { keccak256 } = require("./test-utils");
 
 const { ethers } = hre;
 
@@ -26,9 +27,6 @@ const polygonAddresses = {
   admin: "0xCfcd29CD20B6c64A4C0EB56e29E5ce3CD69336D2",
   quadAdmin: "0x76694A182dB047067521c73161Ebf3Db5Ca988d3",
 };
-
-// eslint-disable-next-line func-style
-const keccak256 = (str) => ethers.keccak256(ethers.toUtf8Bytes(str));
 
 const attributes = {
   DID: keccak256("DID"),

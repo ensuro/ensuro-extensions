@@ -33,6 +33,7 @@ module.exports = {
       "@ensuro/core/contracts/SignedQuoteRiskModule.sol",
       "@ensuro/core/contracts/EToken.sol",
       "@ensuro/core/contracts/mocks/TestCurrency.sol",
+      "@ensuro/swaplibrary/contracts/mocks/SwapRouterMock.sol",
     ],
   },
 };
