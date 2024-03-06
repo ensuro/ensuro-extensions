@@ -120,7 +120,10 @@ describe("Quadrata whitelist", () => {
   });
 
   fork.it("Does not allow overriding whitelist defaults through quadrataWhitelist", 33179753, async () => {
-    const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
+    const { whitelist, accessManager } = await deployWhitelist({ whitelisters: [operative] });
+    const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
+
+    await accessManager.connect(adminEOA).grantComponentRole(whitelist, getRole("LP_WHITELIST_ADMIN_ROLE"), admin);
 
     await expect(whitelist.connect(operative).quadrataWhitelist(ZeroAddress)).to.be.revertedWith(
       "Provider cannot be the zero address"
@@ -228,11 +231,13 @@ describe("Quadrata whitelist", () => {
   );
 
   fork.it("Emits events with passport attributes on whitelist", 33222066, async () => {
-    const { whitelist } = await deployWhitelist({
+    const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
+    const { accessManager, whitelist } = await deployWhitelist({
       whitelisters: [operative],
       requiredAMLScore: 9,
     });
 
+    await accessManager.connect(adminEOA).grantComponentRole(whitelist, getRole("LP_WHITELIST_ADMIN_ROLE"), admin);
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
 
     const tx = whitelist.connect(operative).quadrataWhitelist(userWithPassport);
