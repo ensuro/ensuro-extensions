@@ -78,6 +78,8 @@ describe("Quadrata whitelist", () => {
 
     const { whitelist, accessManager, whitelistMode } = await deployWhitelist({ requiredAMLScore: 9 });
 
+    expect(await whitelist.policyPool()).to.be.equal(mumbaiAddresses.pool);
+
     await expect(whitelist.connect(nobody).quadrataWhitelist(lp)).to.be.revertedWith(
       accessControlMessage(nobody, whitelist, "QUADRATA_WHITELIST_ROLE")
     );
@@ -98,6 +100,8 @@ describe("Quadrata whitelist", () => {
     });
 
     const newMode = Array(4).fill(WhitelistStatus.whitelisted);
+
+    expect(await whitelist.policyPool()).to.be.equal(mumbaiAddresses.pool);
 
     await expect(whitelist.connect(admin).setWhitelistMode(newMode)).to.be.revertedWith(
       accessControlMessage(admin, whitelist, "LP_WHITELIST_ADMIN_ROLE")
@@ -172,7 +176,7 @@ describe("Quadrata whitelist", () => {
       "0xd08185fb6845211640cf7c3f4355f8f886d7bcc7a3bd484b029b5a7539cdb55d"
     );
     await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("AR"));
-    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x9", 32));
+    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x09", 32));
 
     // Can be whitelisted
     await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport))
@@ -213,7 +217,7 @@ describe("Quadrata whitelist", () => {
         "0x0b069a55c9228fb2bd84399faf316f97db44272c7ae4a20bd26d26f06b45ef58"
       );
       await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("AR"));
-      await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x1", 32));
+      await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x01", 32));
 
       // Can be whitelisted
       await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport))
@@ -240,7 +244,7 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, attributes.COUNTRY, keccak256("AR"));
     await expect(tx)
       .to.emit(whitelist, "PassportAttribute")
-      .withArgs(userWithPassport, attributes.AML, ethers.zeroPadValue("0x9", 32));
+      .withArgs(userWithPassport, attributes.AML, ethers.zeroPadValue("0x09", 32));
   });
 
   fork.it("Validates that user aml score is under threshold", 33235866, async () => {
@@ -256,7 +260,7 @@ describe("Quadrata whitelist", () => {
       "0x2a145e0be8c129b136da03f2cea0eca8860309717d5b4ae372a49b34cfa9acef"
     );
     await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("US"));
-    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x4", 32));
+    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x04", 32));
 
     // Cannot be whitelisted
     await expect(whitelist.connect(operative).quadrataWhitelist(userWithPassport)).to.be.revertedWith(
@@ -306,7 +310,7 @@ describe("Quadrata whitelist", () => {
       "0xd08185fb6845211640cf7c3f4355f8f886d7bcc7a3bd484b029b5a7539cdb55d"
     );
     await assertAttributeValue(userWithPassport, attributes.COUNTRY, keccak256("AR"));
-    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x9", 32));
+    await assertAttributeValue(userWithPassport, attributes.AML, ethers.zeroPadValue("0x09", 32));
 
     // Blacklist user's country
     await whitelist.connect(admin).setCountryBlacklisted(keccak256("AR"), true);
@@ -412,7 +416,8 @@ async function deployPassportInspector(readerAddress) {
   const inspector = await PassportInspector.deploy(readerAddress);
 
   async function assertAttributeValue(address, attribute, expected) {
-    const tx = inspector.getAttributesBulk(address, [attribute]);
+    const addr = await ethers.resolveAddress(address);
+    const tx = await inspector.getAttributesBulk(addr, [attribute]);
     await expect(tx).to.emit(inspector, "PassportAttributes").withArgs(attribute, expected);
   }
 
