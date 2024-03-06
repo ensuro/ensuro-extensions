@@ -154,7 +154,6 @@ describe("EuroCashFlowLender contract tests", function () {
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await expect(newPolicy(eurocfLender, creator, policyParams, cust, signature)).to.be.revertedWith(
       "ERC20: transfer amount exceeds balance" // No funds in eurocfLender
@@ -166,7 +165,7 @@ describe("EuroCashFlowLender contract tests", function () {
 
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
     const receipt = await tx.wait();
-    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(500) - _A(80) * assetPrice);
+    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(500) - (_A(80) * assetPrice) / 10n ** 8n);
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(80));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
@@ -199,13 +198,12 @@ describe("EuroCashFlowLender contract tests", function () {
     const now = await helpers.time.latest();
     await addRound(assetOracle, 108919000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender, _A(800));
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
     const receipt = await tx.wait();
 
-    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(800) - _A(200) * assetPrice);
+    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(800) - (_A(200) * assetPrice) / 10n ** 8n);
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(200));
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
     await expect(eurocfLender.connect(anon).resolvePolicy([...newPolicyEvt.args[1]], _A(800))).to.be.revertedWith(
@@ -395,19 +393,18 @@ describe("EuroCashFlowLender contract tests", function () {
     const now = await helpers.time.latest();
     await addRound(assetOracle, 110000000, now - HOUR * 2, now - HALF_HOUR);
     let [, assetPrice] = await assetOracle.latestRoundData();
-    assetPrice = toCurrencyDecimals(assetPrice);
 
     await currency.connect(owner).transfer(eurocfLender, _A(500));
     const tx = await newPolicy(eurocfLender, creator, policyParams, cust, signature);
     const receipt = await tx.wait();
-    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(500) - _A(20) * assetPrice);
+    expect(await currency.balanceOf(eurocfLender)).to.be.equal(_A(500) - (_A(20) * assetPrice) / 10n ** 8n);
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
     expect(newPolicyEvt.args.policy.payout).to.be.equal(_A(100 * 1.1 * 1.05));
 
-    const maxPayout = newPolicyEvt.args.policy.payout;
+    // const maxPayout = newPolicyEvt.args.policy.payout;
     const policyId = newPolicyEvt.args[1].id;
     expect(await pool.ownerOf(policyId)).to.be.equal(eurocfLender);
 
@@ -419,7 +416,7 @@ describe("EuroCashFlowLender contract tests", function () {
     // Two DebtChanged events triggered
     await expect(eurocfLender.connect(resolver).resolvePolicy([...newPolicyEvt.args[1]], _A(100)))
       .to.emit(eurocfLender, "DebtChanged")
-      .withArgs(_A(20).sub(maxPayout / 1.2))
+      .withArgs(-_A("76.25")) // 20 - maxPayout / 1.2
       .to.emit(eurocfLender, "DebtChanged")
       .withArgs(_A(20 - 100));
     expect(await eurocfLender.currentDebt()).to.be.equal(_A(20) - _A(100)); // 20 previous debt - 100 payout
