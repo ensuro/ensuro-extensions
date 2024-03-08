@@ -205,7 +205,7 @@ contract USDTPayoutHandler is
     address,
     uint256 tokenId
   ) external virtual override onlyPolicyPool returns (bytes4) {
-    // _burn(tokenId);
+    _burn(tokenId);
     return IPolicyHolder.onPolicyExpired.selector;
   }
 

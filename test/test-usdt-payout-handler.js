@@ -40,7 +40,7 @@ describe("USDTPayoutHandler", function () {
     _A = amountFunction(6);
   });
 
-  async function deploContractsFixture() {
+  async function deployContractsFixture() {
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(500000) },
       [lp, lp2, cust, owner],
@@ -154,14 +154,14 @@ describe("USDTPayoutHandler", function () {
   }
 
   it("USDTPayoutHandler init", async () => {
-    const { cfl, currency, usdtPayoutHandler, usdt } = await helpers.loadFixture(deploContractsFixture);
+    const { cfl, currency, usdtPayoutHandler, usdt } = await helpers.loadFixture(deployContractsFixture);
     expect(await usdtPayoutHandler.currency()).to.equal(currency.target);
     expect(await usdtPayoutHandler.usdt()).to.equal(usdt.target);
     expect(await usdtPayoutHandler.cashflowLender()).to.equal(cfl.target);
   });
 
   it("Can create policies and assigns them to the end user", async () => {
-    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deploContractsFixture);
+    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
@@ -191,7 +191,7 @@ describe("USDTPayoutHandler", function () {
   });
 
   it("Can create policies in batch and assigns them to the end user", async () => {
-    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deploContractsFixture);
+    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await Promise.all([
       defaultBucketPolicyParams({
         rm: rm,
@@ -230,7 +230,7 @@ describe("USDTPayoutHandler", function () {
   });
 
   it("Handles policy resolution and sends payout to the user", async () => {
-    const { rm, usdtPayoutHandler, pool, currency, usdt } = await helpers.loadFixture(deploContractsFixture);
+    const { rm, usdtPayoutHandler, pool, usdt } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
@@ -255,6 +255,38 @@ describe("USDTPayoutHandler", function () {
     const resolutionTx = await rm.connect(resolver).resolvePolicy([...newPolicyEvt.args.policy], _A(354));
 
     await expect(resolutionTx).to.changeTokenBalance(usdt, cust, _A(354));
+  });
+
+  it("Burns NFT on policy expiration", async () => {
+    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
+    const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    const tx = await usdtPayoutHandler
+      .connect(creator)
+      .newPolicyOnBehalfOf(
+        rm.target,
+        policyParams.payout,
+        policyParams.premium,
+        policyParams.lossProb,
+        policyParams.expiration,
+        cust.address,
+        policyParams.bucketId,
+        policyParams.policyData,
+        signature.r,
+        signature.yParityAndS,
+        policyParams.validUntil
+      );
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+
+    await helpers.time.increaseTo(newPolicyEvt.args.policy.expiration + 500n);
+    await expect(pool.expirePolicy([...newPolicyEvt.args.policy]))
+      .to.emit(usdtPayoutHandler, "Transfer")
+      .withArgs(cust.address, ZeroAddress, policyId);
+
+    expect(await usdtPayoutHandler.balanceOf(cust.address)).to.equal(0);
   });
 });
 
