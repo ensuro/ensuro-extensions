@@ -2,8 +2,6 @@
 pragma solidity 0.8.16;
 
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
-import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -12,16 +10,11 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
-import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {SwapLibrary} from "@ensuro/swaplibrary/contracts/SwapLibrary.sol";
 
 import {ERC4626CashFlowLender} from "./ERC4626CashFlowLender.sol";
-
-// import {WadRayMath} from "./dependencies/WadRayMath.sol";
 
 contract StableSwapPayoutHandler is
   Initializable,
@@ -110,6 +103,7 @@ contract StableSwapPayoutHandler is
       interfaceId == type(IPolicyHolder).interfaceId;
   }
 
+  // solhint-disable-next-line no-empty-blocks
   function _authorizeUpgrade(address newImplementation) internal override onlyRole(GUARDIAN_ROLE) {}
 
   function newPolicyOnBehalfOf(
