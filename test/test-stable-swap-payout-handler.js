@@ -32,10 +32,10 @@ const { ZeroAddress } = ethers;
 
 describe("StableSwapPayoutHandler", function () {
   let _A;
-  let anon, creator, cust, cust2, guardian, lp, lp2, owner, resolver, signer;
+  let anon, creator, cust, cust2, guardian, lp, lp2, pricer, resolver, signer;
 
   beforeEach(async () => {
-    [, lp, lp2, cust, cust2, signer, resolver, creator, anon, owner, guardian] = await ethers.getSigners();
+    [, lp, lp2, cust, cust2, signer, resolver, creator, anon, pricer, guardian] = await ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -43,7 +43,7 @@ describe("StableSwapPayoutHandler", function () {
   async function deployContractsFixture() {
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(500000) },
-      [lp, lp2, cust, owner],
+      [lp, lp2, cust, pricer],
       [_A(100000), _A(10000), _A(2000), _A(1000)]
     );
 
@@ -125,6 +125,7 @@ describe("StableSwapPayoutHandler", function () {
         "EPOLUSDT",
         await ethers.resolveAddress(cfl),
         buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target),
+        _A("1"), // swap price
       ],
       {
         kind: "uups",
@@ -139,25 +140,35 @@ describe("StableSwapPayoutHandler", function () {
 
     return {
       accessManager,
+      cfl,
       currency,
       ERC4626CashFlowLender,
-      cfl,
       etk,
+      payoutHandler,
       pool,
       premiumsAccount,
       rm,
       SignedBucketRiskModule,
-      usdt,
-      payoutHandler,
       StableSwapPayoutHandler,
+      swapRouter,
+      usdt,
     };
   }
 
   it("StableSwapPayoutHandler init", async () => {
-    const { cfl, currency, payoutHandler, usdt } = await helpers.loadFixture(deployContractsFixture);
+    const { cfl, currency, payoutHandler, usdt, swapRouter } = await helpers.loadFixture(deployContractsFixture);
     expect(await payoutHandler.currency()).to.equal(currency.target);
     expect(await payoutHandler.outStable()).to.equal(usdt.target);
     expect(await payoutHandler.cashflowLender()).to.equal(cfl.target);
+    expect(await payoutHandler.swapPrice()).to.equal(_A(1));
+
+    const swapConfig = await payoutHandler.swapConfig();
+    expect(swapConfig.length).to.equal(3);
+    expect(swapConfig[0]).to.equal(Protocols.uniswap);
+    expect(swapConfig[1]).to.equal(_W("0.02"));
+    expect(swapConfig[2]).to.equal(
+      ethers.AbiCoder.defaultAbiCoder().encode(["uint24", "address"], [_A("0.0005"), swapRouter.target])
+    );
   });
 
   it("Can create policies and assigns them to the end user", async () => {
@@ -287,6 +298,24 @@ describe("StableSwapPayoutHandler", function () {
       .withArgs(cust.address, ZeroAddress, policyId);
 
     expect(await payoutHandler.balanceOf(cust.address)).to.equal(0);
+  });
+
+  it("Only allows SWAP_PRICER_ROLE to set the swap price", async () => {
+    const { payoutHandler } = await helpers.loadFixture(deployContractsFixture);
+
+    const newPrice = _A(1.5);
+
+    await expect(payoutHandler.connect(anon).setSwapPrice(newPrice)).to.be.revertedWith(
+      accessControlMessage(anon, null, "SWAP_PRICER_ROLE")
+    );
+
+    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), pricer);
+
+    await expect(payoutHandler.connect(pricer).setSwapPrice(newPrice))
+      .to.emit(payoutHandler, "SwapPriceChanged")
+      .withArgs(newPrice);
+
+    expect(await payoutHandler.swapPrice()).to.equal(newPrice);
   });
 });
 

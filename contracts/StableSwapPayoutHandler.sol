@@ -29,15 +29,17 @@ contract StableSwapPayoutHandler is
 
   bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
+  bytes32 public constant SWAP_PRICER_ROLE = keccak256("SWAP_PRICER_ROLE");
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IERC20Metadata internal immutable _outStable;
 
   ERC4626CashFlowLender internal _cashflowLender;
-
   SwapLibrary.SwapConfig internal _swapConfig;
+  uint256 internal _swapPrice;
 
   event SwapConfigChanged(SwapLibrary.SwapConfig newConfig);
+  event SwapPriceChanged(uint256 newPrice);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(IERC20Metadata outSable_) {
@@ -51,10 +53,11 @@ contract StableSwapPayoutHandler is
     string memory name,
     string memory symbol,
     ERC4626CashFlowLender cashflowLender_,
-    SwapLibrary.SwapConfig memory swapConfig_
+    SwapLibrary.SwapConfig memory swapConfig_,
+    uint256 swapPrice_
   ) public initializer {
     // TODO: admin?
-    __StableSwapPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_);
+    __StableSwapPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_, swapPrice_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
@@ -62,19 +65,21 @@ contract StableSwapPayoutHandler is
     string memory name_,
     string memory symbol_,
     ERC4626CashFlowLender cashflowLender_,
-    SwapLibrary.SwapConfig memory swapConfig_
+    SwapLibrary.SwapConfig memory swapConfig_,
+    uint256 swapPrice_
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
     __ERC721_init(name_, symbol_);
     __Pausable_init();
-    __StableSwapPayoutHandler_init_unchained(cashflowLender_, swapConfig_);
+    __StableSwapPayoutHandler_init_unchained(cashflowLender_, swapConfig_, swapPrice_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __StableSwapPayoutHandler_init_unchained(
     ERC4626CashFlowLender cashflowLender_,
-    SwapLibrary.SwapConfig memory swapConfig_
+    SwapLibrary.SwapConfig memory swapConfig_,
+    uint256 swapPrice_
   ) internal onlyInitializing {
     _cashflowLender = cashflowLender_;
     // TODO: add admin parameter or be consistent with CFL?
@@ -83,6 +88,9 @@ contract StableSwapPayoutHandler is
     _swapConfig = swapConfig_;
     _swapConfig.validate();
     emit SwapConfigChanged(swapConfig_);
+
+    _swapPrice = swapPrice_;
+    emit SwapPriceChanged(_swapPrice);
   }
 
   modifier onlyPolicyPool() {
@@ -189,7 +197,7 @@ contract StableSwapPayoutHandler is
     address tokenOwner = ownerOf(tokenId);
     require(tokenOwner != address(0), "StableSwapPayoutHandler: received unknown policy");
     _burn(tokenId);
-    _swapConfig.exactOutput(address(currency()), address(outStable()), amount, 1e6); // TODO: use an oracle to get the price
+    _swapConfig.exactOutput(address(currency()), address(outStable()), amount, _swapPrice);
     outStable().safeTransfer(tokenOwner, amount);
     return IPolicyHolder.onPayoutReceived.selector;
   }
@@ -203,6 +211,12 @@ contract StableSwapPayoutHandler is
     return IPolicyHolder.onPolicyExpired.selector;
   }
 
+  function setSwapPrice(uint256 newPrice) external onlyRole(SWAP_PRICER_ROLE) {
+    require(newPrice > 0, "StableSwapPayoutHandler: newPrice must be greater than 0");
+    _swapPrice = newPrice;
+    emit SwapPriceChanged(newPrice);
+  }
+
   function currency() public view returns (IERC20Metadata) {
     return _pool().currency();
   }
@@ -213,6 +227,14 @@ contract StableSwapPayoutHandler is
 
   function cashflowLender() public view returns (ERC4626CashFlowLender) {
     return _cashflowLender;
+  }
+
+  function swapPrice() public view returns (uint256) {
+    return _swapPrice;
+  }
+
+  function swapConfig() public view returns (SwapLibrary.SwapConfig memory) {
+    return _swapConfig;
   }
 
   /**
