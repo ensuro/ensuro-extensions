@@ -30,7 +30,7 @@ const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const { ethers } = hre;
 const { ZeroAddress } = ethers;
 
-describe("USDTPayoutHandler", function () {
+describe("StableSwapPayoutHandler", function () {
   let _A;
   let anon, creator, cust, cust2, guardian, lp, lp2, owner, resolver, signer;
 
@@ -113,13 +113,13 @@ describe("USDTPayoutHandler", function () {
     const library = await SwapLibrary.deploy();
 
     // Setup the payout handler
-    const USDTPayoutHandler = await ethers.getContractFactory("USDTPayoutHandler", {
+    const StableSwapPayoutHandler = await ethers.getContractFactory("StableSwapPayoutHandler", {
       libraries: {
         SwapLibrary: library.target,
       },
     });
-    const usdtPayoutHandler = await hre.upgrades.deployProxy(
-      USDTPayoutHandler,
+    const payoutHandler = await hre.upgrades.deployProxy(
+      StableSwapPayoutHandler,
       [
         "Policy NFT USDT",
         "EPOLUSDT",
@@ -134,8 +134,8 @@ describe("USDTPayoutHandler", function () {
     );
 
     // Setup payout handler permissions
-    await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), usdtPayoutHandler);
-    await usdtPayoutHandler.grantRole(await usdtPayoutHandler.POLICY_CREATOR_ROLE(), creator);
+    await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), payoutHandler);
+    await payoutHandler.grantRole(await payoutHandler.POLICY_CREATOR_ROLE(), creator);
 
     return {
       accessManager,
@@ -148,24 +148,24 @@ describe("USDTPayoutHandler", function () {
       rm,
       SignedBucketRiskModule,
       usdt,
-      usdtPayoutHandler,
-      USDTPayoutHandler,
+      payoutHandler,
+      StableSwapPayoutHandler,
     };
   }
 
-  it("USDTPayoutHandler init", async () => {
-    const { cfl, currency, usdtPayoutHandler, usdt } = await helpers.loadFixture(deployContractsFixture);
-    expect(await usdtPayoutHandler.currency()).to.equal(currency.target);
-    expect(await usdtPayoutHandler.usdt()).to.equal(usdt.target);
-    expect(await usdtPayoutHandler.cashflowLender()).to.equal(cfl.target);
+  it("StableSwapPayoutHandler init", async () => {
+    const { cfl, currency, payoutHandler, usdt } = await helpers.loadFixture(deployContractsFixture);
+    expect(await payoutHandler.currency()).to.equal(currency.target);
+    expect(await payoutHandler.outStable()).to.equal(usdt.target);
+    expect(await payoutHandler.cashflowLender()).to.equal(cfl.target);
   });
 
   it("Can create policies and assigns them to the end user", async () => {
-    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
+    const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    const tx = await usdtPayoutHandler
+    const tx = await payoutHandler
       .connect(creator)
       .newPolicyOnBehalfOf(
         rm.target,
@@ -184,14 +184,14 @@ describe("USDTPayoutHandler", function () {
     const newPolicyEvt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
 
-    await expect(tx).to.emit(usdtPayoutHandler, "Transfer").withArgs(ZeroAddress, cust, policyId);
+    await expect(tx).to.emit(payoutHandler, "Transfer").withArgs(ZeroAddress, cust, policyId);
 
-    expect(await pool.ownerOf(policyId)).to.equal(usdtPayoutHandler);
-    expect(await usdtPayoutHandler.ownerOf(policyId)).to.equal(cust);
+    expect(await pool.ownerOf(policyId)).to.equal(payoutHandler);
+    expect(await payoutHandler.ownerOf(policyId)).to.equal(cust);
   });
 
   it("Can create policies in batch and assigns them to the end user", async () => {
-    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
+    const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await Promise.all([
       defaultBucketPolicyParams({
         rm: rm,
@@ -211,7 +211,7 @@ describe("USDTPayoutHandler", function () {
 
     const signatures = await Promise.all(policyParams.map((p) => makeSignedQuote(signer, p, makeBucketQuoteMessage)));
 
-    const tx = await usdtPayoutHandler
+    const tx = await payoutHandler
       .connect(creator)
       .newPoliciesInBatchOnBehalfOf(...makeBatchParams(policyParams, signatures, rm));
 
@@ -221,20 +221,20 @@ describe("USDTPayoutHandler", function () {
     expect(newPolicyEvts.length).to.equal(2);
 
     // Policies are owned by the payout handler
-    expect(await pool.ownerOf(newPolicyEvts[0].args[1].id)).to.equal(usdtPayoutHandler);
-    expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.equal(usdtPayoutHandler);
+    expect(await pool.ownerOf(newPolicyEvts[0].args[1].id)).to.equal(payoutHandler);
+    expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.equal(payoutHandler);
 
     // Payout handler NFTs are owned by the customers
-    expect(await usdtPayoutHandler.ownerOf(newPolicyEvts[0].args[1].id)).to.equal(cust);
-    expect(await usdtPayoutHandler.ownerOf(newPolicyEvts[1].args[1].id)).to.equal(cust2);
+    expect(await payoutHandler.ownerOf(newPolicyEvts[0].args[1].id)).to.equal(cust);
+    expect(await payoutHandler.ownerOf(newPolicyEvts[1].args[1].id)).to.equal(cust2);
   });
 
   it("Handles policy resolution and sends payout to the user", async () => {
-    const { rm, usdtPayoutHandler, pool, usdt } = await helpers.loadFixture(deployContractsFixture);
+    const { rm, payoutHandler, pool, usdt } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    const creationTx = await usdtPayoutHandler
+    const creationTx = await payoutHandler
       .connect(creator)
       .newPolicyOnBehalfOf(
         rm.target,
@@ -258,11 +258,11 @@ describe("USDTPayoutHandler", function () {
   });
 
   it("Burns NFT on policy expiration", async () => {
-    const { rm, usdtPayoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
+    const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
-    const tx = await usdtPayoutHandler
+    const tx = await payoutHandler
       .connect(creator)
       .newPolicyOnBehalfOf(
         rm.target,
@@ -283,10 +283,10 @@ describe("USDTPayoutHandler", function () {
 
     await helpers.time.increaseTo(newPolicyEvt.args.policy.expiration + 500n);
     await expect(pool.expirePolicy([...newPolicyEvt.args.policy]))
-      .to.emit(usdtPayoutHandler, "Transfer")
+      .to.emit(payoutHandler, "Transfer")
       .withArgs(cust.address, ZeroAddress, policyId);
 
-    expect(await usdtPayoutHandler.balanceOf(cust.address)).to.equal(0);
+    expect(await payoutHandler.balanceOf(cust.address)).to.equal(0);
   });
 });
 

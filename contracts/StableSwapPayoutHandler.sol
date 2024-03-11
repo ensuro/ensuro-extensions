@@ -23,7 +23,7 @@ import {ERC4626CashFlowLender} from "./ERC4626CashFlowLender.sol";
 
 // import {WadRayMath} from "./dependencies/WadRayMath.sol";
 
-contract USDTPayoutHandler is
+contract StableSwapPayoutHandler is
   Initializable,
   AccessControlUpgradeable,
   ERC721Upgradeable,
@@ -38,7 +38,7 @@ contract USDTPayoutHandler is
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-  IERC20Metadata internal immutable _usdt;
+  IERC20Metadata internal immutable _outStable;
 
   ERC4626CashFlowLender internal _cashflowLender;
 
@@ -47,9 +47,9 @@ contract USDTPayoutHandler is
   event SwapConfigChanged(SwapLibrary.SwapConfig newConfig);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
-  constructor(IERC20Metadata usdt_) {
-    require(address(usdt_) != address(0), "USDTPayoutHandler: usdt_ cannot be the zero address");
-    _usdt = usdt_;
+  constructor(IERC20Metadata outSable_) {
+    require(address(outSable_) != address(0), "StableSwapPayoutHandler: outStable_ cannot be the zero address");
+    _outStable = outSable_;
 
     _disableInitializers();
   }
@@ -61,11 +61,11 @@ contract USDTPayoutHandler is
     SwapLibrary.SwapConfig memory swapConfig_
   ) public initializer {
     // TODO: admin?
-    __USDTPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_);
+    __StableSwapPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __USDTPayoutHandler_init(
+  function __StableSwapPayoutHandler_init(
     string memory name_,
     string memory symbol_,
     ERC4626CashFlowLender cashflowLender_,
@@ -75,11 +75,11 @@ contract USDTPayoutHandler is
     __AccessControl_init();
     __ERC721_init(name_, symbol_);
     __Pausable_init();
-    __USDTPayoutHandler_init_unchained(cashflowLender_, swapConfig_);
+    __StableSwapPayoutHandler_init_unchained(cashflowLender_, swapConfig_);
   }
 
   // solhint-disable-next-line func-name-mixedcase
-  function __USDTPayoutHandler_init_unchained(
+  function __StableSwapPayoutHandler_init_unchained(
     ERC4626CashFlowLender cashflowLender_,
     SwapLibrary.SwapConfig memory swapConfig_
   ) internal onlyInitializing {
@@ -93,7 +93,7 @@ contract USDTPayoutHandler is
   }
 
   modifier onlyPolicyPool() {
-    require(_msgSender() == address(_pool()), "USDTPayoutHandler: The caller must be the PolicyPool");
+    require(_msgSender() == address(_pool()), "StableSwapPayoutHandler: The caller must be the PolicyPool");
     _;
   }
 
@@ -182,7 +182,7 @@ contract USDTPayoutHandler is
     uint256 tokenId,
     bytes calldata data
   ) external virtual override onlyPolicyPool returns (bytes4) {
-    require(ownerOf(tokenId) != address(0), "USDTPayoutHandler: received unknown policy");
+    require(ownerOf(tokenId) != address(0), "StableSwapPayoutHandler: received unknown policy");
     return IERC721Receiver.onERC721Received.selector;
   }
 
@@ -193,10 +193,10 @@ contract USDTPayoutHandler is
     uint256 amount
   ) external virtual override onlyPolicyPool returns (bytes4) {
     address tokenOwner = ownerOf(tokenId);
-    require(tokenOwner != address(0), "USDTPayoutHandler: received unknown policy");
+    require(tokenOwner != address(0), "StableSwapPayoutHandler: received unknown policy");
     _burn(tokenId);
-    _swapConfig.exactOutput(address(currency()), address(usdt()), amount, 1e6); // TODO: use an oracle to get the price
-    usdt().safeTransfer(tokenOwner, amount);
+    _swapConfig.exactOutput(address(currency()), address(outStable()), amount, 1e6); // TODO: use an oracle to get the price
+    outStable().safeTransfer(tokenOwner, amount);
     return IPolicyHolder.onPayoutReceived.selector;
   }
 
@@ -213,8 +213,8 @@ contract USDTPayoutHandler is
     return _pool().currency();
   }
 
-  function usdt() public view returns (IERC20Metadata) {
-    return _usdt;
+  function outStable() public view returns (IERC20Metadata) {
+    return _outStable;
   }
 
   function cashflowLender() public view returns (ERC4626CashFlowLender) {
@@ -226,5 +226,5 @@ contract USDTPayoutHandler is
    * variables without shifting down storage in the inheritance chain.
    * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
    */
-  uint256[49] private __gap;
+  uint256[46] private __gap;
 }
