@@ -3,7 +3,6 @@ const {
   _W,
   amountFunction,
   accessControlMessage,
-  makeQuoteMessage,
   makeSignedQuote,
   makeBucketQuoteMessage,
 } = require("@ensuro/core/js/utils");
@@ -16,13 +15,7 @@ const {
 } = require("@ensuro/core/js/test-utils");
 
 const { Protocols, buildUniswapConfig } = require("@ensuro/swaplibrary/js/utils");
-const {
-  newPolicy,
-  defaultPolicyParams,
-  defaultBucketPolicyParams,
-  newBucketPolicy,
-  keccak256,
-} = require("./test-utils");
+const { defaultBucketPolicyParams, keccak256 } = require("./test-utils");
 const { getTransactionEvent } = require("./utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
@@ -174,23 +167,12 @@ describe("StableSwapPayoutHandler", function () {
   it("Can create policies and assigns them to the end user", async () => {
     const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
+    policyParams.owner = cust;
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
     const tx = await payoutHandler
       .connect(creator)
-      .newPolicyOnBehalfOf(
-        rm.target,
-        policyParams.payout,
-        policyParams.premium,
-        policyParams.lossProb,
-        policyParams.expiration,
-        cust.address,
-        policyParams.bucketId,
-        policyParams.policyData,
-        signature.r,
-        signature.yParityAndS,
-        policyParams.validUntil
-      );
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
@@ -242,24 +224,15 @@ describe("StableSwapPayoutHandler", function () {
 
   it("Handles policy resolution and sends payout to the user", async () => {
     const { rm, payoutHandler, pool, usdt } = await helpers.loadFixture(deployContractsFixture);
-    const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) });
+    const policyParams = {
+      ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) })),
+      owner: cust,
+    };
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
     const creationTx = await payoutHandler
       .connect(creator)
-      .newPolicyOnBehalfOf(
-        rm.target,
-        policyParams.payout,
-        policyParams.premium,
-        policyParams.lossProb,
-        policyParams.expiration,
-        cust.address,
-        policyParams.bucketId,
-        policyParams.policyData,
-        signature.r,
-        signature.yParityAndS,
-        policyParams.validUntil
-      );
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, await creationTx.wait(), "NewPolicy");
 
@@ -270,24 +243,15 @@ describe("StableSwapPayoutHandler", function () {
 
   it("Burns NFT on policy expiration", async () => {
     const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
-    const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
+    const policyParams = {
+      ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) })),
+      owner: cust,
+    };
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
     const tx = await payoutHandler
       .connect(creator)
-      .newPolicyOnBehalfOf(
-        rm.target,
-        policyParams.payout,
-        policyParams.premium,
-        policyParams.lossProb,
-        policyParams.expiration,
-        cust.address,
-        policyParams.bucketId,
-        policyParams.policyData,
-        signature.r,
-        signature.yParityAndS,
-        policyParams.validUntil
-      );
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
 
     const newPolicyEvt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
     const policyId = newPolicyEvt.args[1].id;
@@ -344,5 +308,21 @@ function makeBatchParams(policyParams, signatures, rm) {
     quoteSignatureR,
     quoteSignatureVS,
     validUntil,
+  ];
+}
+
+function makeNewPolicyParams(policyParams, signature, rm) {
+  return [
+    rm.target,
+    policyParams.payout,
+    policyParams.premium,
+    policyParams.lossProb,
+    policyParams.expiration,
+    policyParams.owner.address,
+    policyParams.bucketId,
+    policyParams.policyData,
+    signature.r,
+    signature.yParityAndS,
+    policyParams.validUntil,
   ];
 }
