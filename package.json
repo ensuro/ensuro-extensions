@@ -4,7 +4,7 @@
   "description": "Extension contracts that operate with the Ensuro Protocol",
   "scripts": {
     "prettier": "prettier --write 'contracts/**/*.sol' --write 'test/**/*.js'",
-    "solhint": "solhint 'contracts/**/*.sol'"
+    "solhint": "solhint -w 0 'contracts/**/*.sol'"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.6",
