@@ -92,10 +92,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     EToken[] calldata etks,
     uint256[] calldata percentages
   ) internal onlyInitializing {
-    require(
-      etks.length == percentages.length,
-      "ETokensBundleVault: etks and percentages lengths differ"
-    );
+    require(etks.length == percentages.length, "ETokensBundleVault: etks and percentages lengths differ");
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
     IPolicyPool pool;
@@ -104,20 +101,14 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       if (i == 0) {
         pool = etks[0].policyPool();
       } else {
-        require(
-          pool == etks[i].policyPool(),
-          "ETokensBundleVault: Can't mix eTokens from different PolicyPool"
-        );
+        require(pool == etks[i].policyPool(), "ETokensBundleVault: Can't mix eTokens from different PolicyPool");
       }
       _underlying.push(Underlying(etks[i], _wadTo16(percentages[i])));
       emit UnderlyingChanged(etks[i], i, percentages[i]);
       totalPercentage += percentages[i];
     }
     /* WARNING: the user must check the etks are unique, they can't appear twice in the array */
-    require(
-      totalPercentage == HUNDRED_PERCENT,
-      "ETokensBundleVault: total percentage must be 100%"
-    );
+    require(totalPercentage == HUNDRED_PERCENT, "ETokensBundleVault: total percentage must be 100%");
 
     // Infinite approval to the PolicyPool to pay the deposits
     IERC20Metadata(asset()).approve(address(pool), type(uint256).max);
@@ -265,12 +256,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     require(left == 0, "ETokensBundleVault: couldn't allocate all the deposit");
   }
 
-  function _deposit(
-    address caller,
-    address receiver,
-    uint256 assets,
-    uint256 shares
-  ) internal virtual override {
+  function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
     super._deposit(caller, receiver, assets, shares);
     _depositInUnderlying(assets);
   }
@@ -280,11 +266,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    *      If some of the eTokens don't accept the proportional withdrawal, it will try to withdraw that money from the
    *      last one.
    */
-  function _withdrawProportional(
-    IPolicyPool pool,
-    uint256 assets,
-    uint256 totalAssets_
-  ) internal returns (uint256) {
+  function _withdrawProportional(IPolicyPool pool, uint256 assets, uint256 totalAssets_) internal returns (uint256) {
     uint256 toWithdraw;
     uint256 left = assets;
     uint256 last = _underlying.length - 1;
@@ -350,14 +332,8 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    * @param percentages The new allocation percentages, including the new one.
    */
   function addEToken(EToken newETK, uint256[] calldata percentages) external onlyRole(ADMIN_ROLE) {
-    require(
-      percentages.length == _underlying.length + 1,
-      "ETokensBundleVault: must send the new percentages"
-    );
-    require(
-      policyPool() == newETK.policyPool(),
-      "ETokensBundleVault: Can't mix eTokens from different PolicyPool"
-    );
+    require(percentages.length == _underlying.length + 1, "ETokensBundleVault: must send the new percentages");
+    require(policyPool() == newETK.policyPool(), "ETokensBundleVault: Can't mix eTokens from different PolicyPool");
     uint256 totalPercentage;
     for (uint256 i; i < _underlying.length; i++) {
       require(newETK != _underlying[i].etk, "ETokensBundleVault: eToken already in the bundle");
@@ -369,10 +345,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
     emit UnderlyingChanged(newETK, _underlying.length, percentages[_underlying.length]);
     _underlying.push(Underlying(newETK, _wadTo16(percentages[_underlying.length])));
 
-    require(
-      totalPercentage == HUNDRED_PERCENT,
-      "ETokensBundleVault: total percentage must be 100%"
-    );
+    require(totalPercentage == HUNDRED_PERCENT, "ETokensBundleVault: total percentage must be 100%");
   }
 
   /**
@@ -388,10 +361,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    * @param etkToRemove The address of the eToken to remove
    * @param percentages The new allocation percentages, excluding the removed one
    */
-  function removeEToken(
-    EToken etkToRemove,
-    uint256[] calldata percentages
-  ) external onlyRole(ADMIN_ROLE) {
+  function removeEToken(EToken etkToRemove, uint256[] calldata percentages) external onlyRole(ADMIN_ROLE) {
     require(
       percentages.length == _underlying.length - 1 && percentages.length != 0,
       "ETokensBundleVault: must send the new percentages"
@@ -413,10 +383,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
       found || _underlying[_underlying.length - 1].etk == etkToRemove,
       "ETokensBundleVault: token to remove not found!"
     );
-    require(
-      totalPercentage == HUNDRED_PERCENT,
-      "ETokensBundleVault: total percentage must be 100%"
-    );
+    require(totalPercentage == HUNDRED_PERCENT, "ETokensBundleVault: total percentage must be 100%");
     _underlying.pop();
     emit UnderlyingChanged(etkToRemove, type(uint256).max, type(uint256).max);
     // Withdraw all the funds from removed eToken and deposit them
@@ -439,23 +406,15 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    *
    * @param percentages The new allocation percentages. Sum must be 1e18 (100%).
    */
-  function changePercentages(
-    uint256[] calldata percentages
-  ) external onlyRole(CHANGE_PERCENTAGE_ROLE) {
-    require(
-      percentages.length == _underlying.length,
-      "ETokensBundleVault: must send the new percentages"
-    );
+  function changePercentages(uint256[] calldata percentages) external onlyRole(CHANGE_PERCENTAGE_ROLE) {
+    require(percentages.length == _underlying.length, "ETokensBundleVault: must send the new percentages");
     uint256 totalPercentage;
     for (uint256 i; i < _underlying.length; i++) {
       _underlying[i].percentage = _wadTo16(percentages[i]);
       emit UnderlyingChanged(_underlying[i].etk, i, percentages[i]);
       totalPercentage += percentages[i];
     }
-    require(
-      totalPercentage == HUNDRED_PERCENT,
-      "ETokensBundleVault: total percentage must be 100%"
-    );
+    require(totalPercentage == HUNDRED_PERCENT, "ETokensBundleVault: total percentage must be 100%");
   }
 
   /**
@@ -471,10 +430,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    * @param b The index of the second eToken
    */
   function reorderETokens(uint256 a, uint256 b) external onlyRole(REORDER_ROLE) {
-    require(
-      a < _underlying.length && b < _underlying.length && a != b,
-      "ETokensBundleVault: values out of bounds"
-    );
+    require(a < _underlying.length && b < _underlying.length && a != b, "ETokensBundleVault: values out of bounds");
     Underlying memory aux = _underlying[a];
     _underlying[a] = _underlying[b];
     _underlying[b] = aux;
@@ -493,15 +449,8 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
    * @param to_ The index of the eToken where the funds will be deposited
    * @param amount The amount to withdraw
    */
-  function rebalance(
-    uint256 from_,
-    uint256 to_,
-    uint256 amount
-  ) external onlyRole(REBALANCER_ROLE) {
-    require(
-      from_ < _underlying.length && to_ < _underlying.length,
-      "ETokensBundleVault: values out of bounds"
-    );
+  function rebalance(uint256 from_, uint256 to_, uint256 amount) external onlyRole(REBALANCER_ROLE) {
+    require(from_ < _underlying.length && to_ < _underlying.length, "ETokensBundleVault: values out of bounds");
     policyPool().withdraw(_underlying[from_].etk, amount);
     policyPool().deposit(_underlying[to_].etk, IERC20Metadata(asset()).balanceOf(address(this)));
   }
@@ -509,11 +458,7 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   /**
    * @dev Returns the list of underlying eTokens and the deposit allocation percentages
    */
-  function getUnderlying()
-    external
-    view
-    returns (EToken[] memory etks, uint256[] memory percentages)
-  {
+  function getUnderlying() external view returns (EToken[] memory etks, uint256[] memory percentages) {
     etks = new EToken[](_underlying.length);
     percentages = new uint256[](_underlying.length);
     for (uint256 i; i < _underlying.length; i++) {

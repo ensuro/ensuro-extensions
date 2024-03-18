@@ -7,7 +7,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {SignedQuoteRiskModule} from "@ensuro/core/contracts/SignedQuoteRiskModule.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
@@ -40,10 +39,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(SignedQuoteRiskModule riskModule_) {
-    require(
-      address(riskModule_) != address(0),
-      "CashFlowLender: riskModule_ cannot be zero address"
-    );
+    require(address(riskModule_) != address(0), "CashFlowLender: riskModule_ cannot be zero address");
     _disableInitializers();
     _riskModule = riskModule_;
   }
@@ -262,10 +258,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     }
   }
 
-  function resolvePolicy(
-    Policy.PolicyData calldata policy,
-    uint256 payout
-  ) external onlyRole(RESOLVER_ROLE) {
+  function resolvePolicy(Policy.PolicyData calldata policy, uint256 payout) external onlyRole(RESOLVER_ROLE) {
     SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicy(policy, payout);
   }
 
@@ -276,12 +269,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
     SignedQuoteRiskModule(address(policy.riskModule)).resolvePolicyFullPayout(policy, customerWon);
   }
 
-  function onERC721Received(
-    address,
-    address,
-    uint256,
-    bytes calldata
-  ) external pure override returns (bytes4) {
+  function onERC721Received(address, address, uint256, bytes calldata) external pure override returns (bytes4) {
     return IERC721Receiver.onERC721Received.selector;
   }
 
@@ -298,12 +286,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
    *
    * The selector can be obtained in Solidity with `IPolicyPool.onPayoutReceived.selector`.
    */
-  function onPayoutReceived(
-    address,
-    address,
-    uint256,
-    uint256 amount
-  ) external override returns (bytes4) {
+  function onPayoutReceived(address, address, uint256, uint256 amount) external override returns (bytes4) {
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _repayDebtTransferRest(amount);
     return IPolicyHolder.onPayoutReceived.selector;
@@ -321,10 +304,7 @@ contract CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, IPolicyHol
    * @param destination The address that will receive the transferred funds.
    * @return Returns the actual amount withdrawn.
    */
-  function withdraw(
-    uint256 amount,
-    address destination
-  ) external onlyRole(OWNER_ROLE) returns (uint256) {
+  function withdraw(uint256 amount, address destination) external onlyRole(OWNER_ROLE) returns (uint256) {
     require(destination != address(0), "CashFlowLender: destination cannot be the zero address");
     if (amount == type(uint256).max) {
       amount = _balance();
