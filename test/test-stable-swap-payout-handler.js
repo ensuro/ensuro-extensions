@@ -439,7 +439,7 @@ describe("StableSwapPayoutHandler", function () {
     );
   });
 
-  it.only("Uses the payoutHandler's own funds to cover minor slippage", async () => {
+  it("Uses the payoutHandler's own funds to cover minor slippage", async () => {
     const { rm, payoutHandler, pool, currency, usdt, swapRouter } = await helpers.loadFixture(deployContractsFixture);
 
     // provide some buffer funds to the payout handler
