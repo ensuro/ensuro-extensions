@@ -67,7 +67,7 @@ contract StableSwapPayoutHandler is
     string memory symbol_,
     ERC4626CashFlowLender cashflowLender_,
     SwapLibrary.SwapConfig memory swapConfig_,
-    uint256 swapPrice_
+    uint256 swapPrice_ // TODO: document that this price must always be in WAD
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();

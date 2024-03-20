@@ -97,8 +97,8 @@ describe("StableSwapPayoutHandler", function () {
     const SwapRouterMock = await ethers.getContractFactory("SwapRouterMock");
     const swapRouter = await SwapRouterMock.deploy(guardian);
     await swapRouter.waitForDeployment();
-    await usdt.connect(lp2).transfer(swapRouter.target, _A("5000"));
-    await swapRouter.setCurrentPrice(currency.target, usdt.target, _A(1));
+    await usdt.connect(lp2).transfer(swapRouter, _A("5000"));
+    await swapRouter.setCurrentPrice(currency, usdt, _A(1));
 
     // Setup the swap library
     const SwapLibrary = await ethers.getContractFactory("SwapLibrary");
@@ -117,7 +117,7 @@ describe("StableSwapPayoutHandler", function () {
         "EPOLUSDT",
         await ethers.resolveAddress(cfl),
         buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target),
-        _A("1"), // swap price
+        _W("1"), // swap price
       ],
       {
         kind: "uups",
@@ -129,6 +129,7 @@ describe("StableSwapPayoutHandler", function () {
     // Setup payout handler permissions
     await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), payoutHandler);
     await payoutHandler.grantRole(await payoutHandler.POLICY_CREATOR_ROLE(), creator);
+    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
 
     return {
       accessManager,
@@ -152,7 +153,7 @@ describe("StableSwapPayoutHandler", function () {
     expect(await payoutHandler.currency()).to.equal(currency.target);
     expect(await payoutHandler.outStable()).to.equal(usdt.target);
     expect(await payoutHandler.cashflowLender()).to.equal(cfl.target);
-    expect(await payoutHandler.swapPrice()).to.equal(_A(1));
+    expect(await payoutHandler.swapPrice()).to.equal(_W(1));
 
     const swapConfig = await payoutHandler.swapConfig();
     expect(swapConfig.length).to.equal(3);
@@ -183,13 +184,11 @@ describe("StableSwapPayoutHandler", function () {
   it("Only allows SWAP_PRICER_ROLE to set the swap price and validates it", async () => {
     const { payoutHandler } = await helpers.loadFixture(deployContractsFixture);
 
-    const newPrice = _A(1.5);
+    const newPrice = _W(1.5);
 
     await expect(payoutHandler.connect(anon).setSwapPrice(newPrice)).to.be.revertedWith(
       accessControlMessage(anon, null, "SWAP_PRICER_ROLE")
     );
-
-    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
 
     await expect(payoutHandler.connect(usdtPricer).setSwapPrice(newPrice))
       .to.emit(payoutHandler, "SwapPriceChanged")
@@ -416,6 +415,56 @@ describe("StableSwapPayoutHandler", function () {
 
     expect(await pool.balanceOf(payoutHandler)).to.equal(0);
     expect(await pool.ownerOf(newPolicyEvt.args[1].id)).to.equal(cust);
+  });
+
+  it("Fails policy resolution if the swap slippage is too high", async () => {
+    const { rm, payoutHandler, pool, currency, usdt, swapRouter } = await helpers.loadFixture(deployContractsFixture);
+
+    // slippage is 50% off from the expected price
+    await swapRouter.setCurrentPrice(currency, usdt, _W("1.5"));
+
+    const policyParams = {
+      ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) })),
+      owner: cust,
+    };
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
+
+    const creationTx = await payoutHandler
+      .connect(creator)
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
+    const newPolicyEvt = getTransactionEvent(pool.interface, await creationTx.wait(), "NewPolicy");
+
+    await expect(rm.connect(resolver).resolvePolicy([...newPolicyEvt.args.policy], _A(354))).to.be.revertedWith(
+      "The input amount exceeds the slippage"
+    );
+  });
+
+  it.only("Uses the payoutHandler's own funds to cover minor slippage", async () => {
+    const { rm, payoutHandler, pool, currency, usdt, swapRouter } = await helpers.loadFixture(deployContractsFixture);
+
+    // provide some buffer funds to the payout handler
+    await currency.connect(lp).transfer(payoutHandler, _A(100));
+
+    // slippage is 1% off from the expected price
+    await swapRouter.setCurrentPrice(currency, usdt, _W("1.01"));
+
+    const policyParams = {
+      ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) })),
+      owner: cust,
+    };
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
+
+    const creationTx = await payoutHandler
+      .connect(creator)
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
+    const newPolicyEvt = getTransactionEvent(pool.interface, await creationTx.wait(), "NewPolicy");
+
+    const resolutionTx = await rm.connect(resolver).resolvePolicy([...newPolicyEvt.args.policy], _A(354));
+
+    await expect(resolutionTx).to.changeTokenBalance(usdt, cust, _A(354));
+
+    // The 1% slippage was covered by the funds in the payout handler
+    await expect(resolutionTx).to.changeTokenBalance(currency, payoutHandler, -_A("3.54"));
   });
 });
 
