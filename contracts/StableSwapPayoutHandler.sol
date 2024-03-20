@@ -5,6 +5,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -215,6 +216,12 @@ contract StableSwapPayoutHandler is
     require(newPrice > 0, "StableSwapPayoutHandler: newPrice must be greater than 0");
     _swapPrice = newPrice;
     emit SwapPriceChanged(newPrice);
+  }
+
+  function recoverPolicy(uint256 tokenId) external {
+    require(ownerOf(tokenId) == _msgSender(), "StableSwapPayoutHandler: you must own the NFT to recover the policy");
+    _burn(tokenId);
+    IERC721(address(_pool())).safeTransferFrom(address(this), _msgSender(), tokenId);
   }
 
   function currency() public view returns (IERC20Metadata) {
