@@ -21,7 +21,7 @@ const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 const { ethers } = hre;
-const { ZeroAddress } = ethers;
+const { ZeroAddress, ZeroHash } = ethers;
 
 describe("StableSwapPayoutHandler", function () {
   let _A;
@@ -164,11 +164,32 @@ describe("StableSwapPayoutHandler", function () {
     );
   });
 
-  it("Can create policies and assigns them to the end user", async () => {
+  it("Implements the IPolicyHolder interface and validates it's called from the policy pool", async () => {
+    const { payoutHandler } = await helpers.loadFixture(deployContractsFixture);
+    // expect(await payoutHandler.supportsInterface("???")).to.be.true();
+
+    await expect(
+      payoutHandler.connect(anon).onERC721Received(anon.address, anon.address, 1n, ZeroHash)
+    ).to.be.revertedWith("StableSwapPayoutHandler: The caller must be the PolicyPool");
+
+    await expect(payoutHandler.connect(anon).onPayoutReceived(anon.address, anon.address, 1n, 1n)).to.be.revertedWith(
+      "StableSwapPayoutHandler: The caller must be the PolicyPool"
+    );
+
+    await expect(payoutHandler.connect(anon).onPolicyExpired(anon.address, anon.address, 1n)).to.be.revertedWith(
+      "StableSwapPayoutHandler: The caller must be the PolicyPool"
+    );
+  });
+
+  it("Can create policies and assign them to the end user", async () => {
     const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
     policyParams.owner = cust;
     const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+    await expect(
+      payoutHandler.connect(anon).newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm))
+    ).to.be.revertedWith(accessControlMessage(anon, null, "POLICY_CREATOR_ROLE"));
 
     const tx = await payoutHandler
       .connect(creator)
@@ -264,7 +285,7 @@ describe("StableSwapPayoutHandler", function () {
     expect(await payoutHandler.balanceOf(cust.address)).to.equal(0);
   });
 
-  it("Only allows SWAP_PRICER_ROLE to set the swap price", async () => {
+  it("Only allows SWAP_PRICER_ROLE to set the swap price and validates it", async () => {
     const { payoutHandler } = await helpers.loadFixture(deployContractsFixture);
 
     const newPrice = _A(1.5);
@@ -278,8 +299,11 @@ describe("StableSwapPayoutHandler", function () {
     await expect(payoutHandler.connect(pricer).setSwapPrice(newPrice))
       .to.emit(payoutHandler, "SwapPriceChanged")
       .withArgs(newPrice);
-
     expect(await payoutHandler.swapPrice()).to.equal(newPrice);
+
+    await expect(payoutHandler.connect(pricer).setSwapPrice(0n)).to.be.revertedWith(
+      "StableSwapPayoutHandler: newPrice must be greater than 0"
+    );
   });
 });
 
