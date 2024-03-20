@@ -179,18 +179,18 @@ contract StableSwapPayoutHandler is
   }
 
   function onERC721Received(
-    address riskModule,
-    address from,
+    address,
+    address,
     uint256 tokenId,
-    bytes calldata data
+    bytes calldata
   ) external virtual override onlyPolicyPool returns (bytes4) {
     require(_ownerOf(tokenId) != address(0), "StableSwapPayoutHandler: received unknown policy");
     return IERC721Receiver.onERC721Received.selector;
   }
 
   function onPayoutReceived(
-    address riskModule,
-    address from,
+    address,
+    address,
     uint256 tokenId,
     uint256 amount
   ) external virtual override onlyPolicyPool returns (bytes4) {
