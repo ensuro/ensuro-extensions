@@ -115,4 +115,5 @@ module.exports = {
   defaultBucketPolicyParams,
   newBucketPolicy,
   keccak256,
+  getAddress,
 };

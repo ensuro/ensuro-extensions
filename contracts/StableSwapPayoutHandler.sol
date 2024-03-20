@@ -184,7 +184,7 @@ contract StableSwapPayoutHandler is
     uint256 tokenId,
     bytes calldata data
   ) external virtual override onlyPolicyPool returns (bytes4) {
-    require(ownerOf(tokenId) != address(0), "StableSwapPayoutHandler: received unknown policy");
+    require(_ownerOf(tokenId) != address(0), "StableSwapPayoutHandler: received unknown policy");
     return IERC721Receiver.onERC721Received.selector;
   }
 
@@ -194,7 +194,7 @@ contract StableSwapPayoutHandler is
     uint256 tokenId,
     uint256 amount
   ) external virtual override onlyPolicyPool returns (bytes4) {
-    address tokenOwner = ownerOf(tokenId);
+    address tokenOwner = _ownerOf(tokenId);
     require(tokenOwner != address(0), "StableSwapPayoutHandler: received unknown policy");
     _burn(tokenId);
     _swapConfig.exactOutput(address(currency()), address(outStable()), amount, _swapPrice);

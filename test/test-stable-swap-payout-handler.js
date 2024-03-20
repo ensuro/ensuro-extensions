@@ -15,7 +15,7 @@ const {
 } = require("@ensuro/core/js/test-utils");
 
 const { Protocols, buildUniswapConfig } = require("@ensuro/swaplibrary/js/utils");
-const { defaultBucketPolicyParams, keccak256 } = require("./test-utils");
+const { defaultBucketPolicyParams, keccak256, getAddress } = require("./test-utils");
 const { getTransactionEvent } = require("./utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
@@ -25,10 +25,10 @@ const { ZeroAddress, ZeroHash } = ethers;
 
 describe("StableSwapPayoutHandler", function () {
   let _A;
-  let anon, creator, cust, cust2, guardian, lp, lp2, pricer, resolver, signer;
+  let anon, creator, cust, cust2, guardian, lp, lp2, policyPricer, resolver, usdtPricer;
 
   beforeEach(async () => {
-    [, lp, lp2, cust, cust2, signer, resolver, creator, anon, pricer, guardian] = await ethers.getSigners();
+    [, lp, lp2, cust, cust2, policyPricer, resolver, creator, anon, usdtPricer, guardian] = await ethers.getSigners();
 
     _A = amountFunction(6);
   });
@@ -36,7 +36,7 @@ describe("StableSwapPayoutHandler", function () {
   async function deployContractsFixture() {
     const currency = await initCurrency(
       { name: "Test USDC", symbol: "USDC", decimals: 6, initial_supply: _A(500000) },
-      [lp, lp2, cust, pricer],
+      [lp, lp2, cust, usdtPricer],
       [_A(100000), _A(10000), _A(2000), _A(1000)]
     );
 
@@ -73,7 +73,7 @@ describe("StableSwapPayoutHandler", function () {
       extraConstructorArgs: [false],
     });
 
-    await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), signer);
+    await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), policyPricer);
 
     // Setup the cfl
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
@@ -185,7 +185,7 @@ describe("StableSwapPayoutHandler", function () {
     const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
     policyParams.owner = cust;
-    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
 
     await expect(
       payoutHandler.connect(anon).newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm))
@@ -223,7 +223,9 @@ describe("StableSwapPayoutHandler", function () {
     policyParams[0].owner = cust;
     policyParams[1].owner = cust2;
 
-    const signatures = await Promise.all(policyParams.map((p) => makeSignedQuote(signer, p, makeBucketQuoteMessage)));
+    const signatures = await Promise.all(
+      policyParams.map((p) => makeSignedQuote(policyPricer, p, makeBucketQuoteMessage))
+    );
 
     const tx = await payoutHandler
       .connect(creator)
@@ -249,7 +251,7 @@ describe("StableSwapPayoutHandler", function () {
       ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) })),
       owner: cust,
     };
-    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
 
     const creationTx = await payoutHandler
       .connect(creator)
@@ -262,13 +264,53 @@ describe("StableSwapPayoutHandler", function () {
     await expect(resolutionTx).to.changeTokenBalance(usdt, cust, _A(354));
   });
 
+  it("Rejects unknown policies and their payouts", async () => {
+    const { rm, payoutHandler, pool, cfl } = await helpers.loadFixture(deployContractsFixture);
+    const policyParams = {
+      ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(354), premium: _A(80) })),
+      owner: payoutHandler,
+    };
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
+
+    // We'll be creating/resolving some policies from an EOA
+    await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), creator);
+
+    // Policy not created through the payout handler is rejected
+    await expect(
+      cfl.connect(creator).newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm))
+    ).to.be.revertedWith("StableSwapPayoutHandler: received unknown policy");
+
+    // Transferred policies are rejected as well
+    policyParams.owner = creator;
+    const creationTx = await cfl
+      .connect(creator)
+      .newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm));
+    const newPolicyEvt = getTransactionEvent(pool.interface, await creationTx.wait(), "NewPolicy");
+
+    await expect(
+      pool.connect(creator).safeTransferFrom(creator, payoutHandler, newPolicyEvt.args[1].id)
+    ).to.be.revertedWith("StableSwapPayoutHandler: received unknown policy");
+
+    // Payouts are rejected
+    await pool.connect(creator).transferFrom(creator, payoutHandler, newPolicyEvt.args[1].id); // TODO: Should this be allowed to happen in the pool?
+    await expect(rm.connect(resolver).resolvePolicy([...newPolicyEvt.args.policy], _A(354))).to.be.revertedWith(
+      "StableSwapPayoutHandler: received unknown policy"
+    );
+
+    await helpers.time.increaseTo(newPolicyEvt.args.policy.expiration + 500n);
+
+    // Even though onPolicyExpired fails, the policy is still expired
+    await expect(pool.expirePolicy([...newPolicyEvt.args.policy])).to.not.emit(payoutHandler, "Transfer");
+    expect(await pool.isActive(newPolicyEvt.args[1].id)).to.be.false;
+  });
+
   it("Burns NFT on policy expiration", async () => {
     const { rm, payoutHandler, pool } = await helpers.loadFixture(deployContractsFixture);
     const policyParams = {
       ...(await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) })),
       owner: cust,
     };
-    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
 
     const tx = await payoutHandler
       .connect(creator)
@@ -294,16 +336,60 @@ describe("StableSwapPayoutHandler", function () {
       accessControlMessage(anon, null, "SWAP_PRICER_ROLE")
     );
 
-    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), pricer);
+    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
 
-    await expect(payoutHandler.connect(pricer).setSwapPrice(newPrice))
+    await expect(payoutHandler.connect(usdtPricer).setSwapPrice(newPrice))
       .to.emit(payoutHandler, "SwapPriceChanged")
       .withArgs(newPrice);
     expect(await payoutHandler.swapPrice()).to.equal(newPrice);
 
-    await expect(payoutHandler.connect(pricer).setSwapPrice(0n)).to.be.revertedWith(
+    await expect(payoutHandler.connect(usdtPricer).setSwapPrice(0n)).to.be.revertedWith(
       "StableSwapPayoutHandler: newPrice must be greater than 0"
     );
+  });
+
+  it("Only allows POLICY_CREATOR_ROLE to create policies", async () => {
+    const { rm, payoutHandler } = await helpers.loadFixture(deployContractsFixture);
+    const policyParams = await defaultBucketPolicyParams({ rm: rm, payout: _A(800), premium: _A(200) });
+    policyParams.owner = cust;
+    const signature = await makeSignedQuote(policyPricer, policyParams, makeBucketQuoteMessage);
+
+    await expect(
+      payoutHandler.connect(anon).newPolicyOnBehalfOf(...makeNewPolicyParams(policyParams, signature, rm))
+    ).to.be.revertedWith(accessControlMessage(anon, null, "POLICY_CREATOR_ROLE"));
+
+    await expect(
+      payoutHandler.connect(anon).newPoliciesInBatchOnBehalfOf(...makeBatchParams([policyParams], [signature], rm))
+    ).to.be.revertedWith(accessControlMessage(anon, null, "POLICY_CREATOR_ROLE"));
+  });
+
+  it("Constructor and init validations", async () => {
+    const { payoutHandler, StableSwapPayoutHandler, cfl, swapRouter } =
+      await helpers.loadFixture(deployContractsFixture);
+
+    // Initializers are disabled
+    await expect(
+      payoutHandler
+        .connect(anon)
+        .initialize("aName", "aSymbol", cfl, buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target), 1n)
+    ).to.be.revertedWith("Initializable: contract is already initialized");
+
+    // outStable=0 is rejected
+    await expect(StableSwapPayoutHandler.deploy(ZeroAddress)).to.be.revertedWith(
+      "StableSwapPayoutHandler: outStable_ cannot be the zero address"
+    );
+  });
+
+  it("Only allows GUARDIAN_ROLE to upgrade", async () => {
+    const { payoutHandler, StableSwapPayoutHandler, usdt } = await helpers.loadFixture(deployContractsFixture);
+
+    await expect(payoutHandler.connect(anon).upgradeTo(ZeroAddress)).to.be.revertedWith(
+      accessControlMessage(anon, null, "GUARDIAN_ROLE")
+    );
+
+    await payoutHandler.grantRole(await payoutHandler.GUARDIAN_ROLE(), guardian);
+    const newImpl = await StableSwapPayoutHandler.deploy(usdt);
+    await expect(payoutHandler.connect(guardian).upgradeTo(newImpl)).to.emit(payoutHandler, "Upgraded");
   });
 });
 
@@ -342,7 +428,7 @@ function makeNewPolicyParams(policyParams, signature, rm) {
     policyParams.premium,
     policyParams.lossProb,
     policyParams.expiration,
-    policyParams.owner.address,
+    getAddress(policyParams.owner),
     policyParams.bucketId,
     policyParams.policyData,
     signature.r,
