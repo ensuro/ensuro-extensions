@@ -118,6 +118,7 @@ describe("StableSwapPayoutHandler", function () {
         await ethers.resolveAddress(cfl),
         buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target),
         _W("1"), // swap price
+        guardian.address,
       ],
       {
         kind: "uups",
@@ -128,8 +129,8 @@ describe("StableSwapPayoutHandler", function () {
 
     // Setup payout handler permissions
     await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), payoutHandler);
-    await payoutHandler.grantRole(await payoutHandler.POLICY_CREATOR_ROLE(), creator);
-    await payoutHandler.grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
+    await payoutHandler.connect(guardian).grantRole(await payoutHandler.POLICY_CREATOR_ROLE(), creator);
+    await payoutHandler.connect(guardian).grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
 
     return {
       accessManager,
@@ -223,7 +224,14 @@ describe("StableSwapPayoutHandler", function () {
     await expect(
       payoutHandler
         .connect(anon)
-        .initialize("aName", "aSymbol", cfl, buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target), 1n)
+        .initialize(
+          "aName",
+          "aSymbol",
+          cfl,
+          buildUniswapConfig(_W("0.02"), _A("0.0005"), swapRouter.target),
+          1n,
+          guardian.address
+        )
     ).to.be.revertedWith("Initializable: contract is already initialized");
 
     // outStable=0 is rejected
@@ -239,7 +247,6 @@ describe("StableSwapPayoutHandler", function () {
       accessControlMessage(anon, null, "GUARDIAN_ROLE")
     );
 
-    await payoutHandler.grantRole(await payoutHandler.GUARDIAN_ROLE(), guardian);
     const newImpl = await StableSwapPayoutHandler.deploy(usdt);
     await expect(payoutHandler.connect(guardian).upgradeTo(newImpl)).to.emit(payoutHandler, "Upgraded");
   });

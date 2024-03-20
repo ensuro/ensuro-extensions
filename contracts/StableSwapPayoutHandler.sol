@@ -65,16 +65,17 @@ contract StableSwapPayoutHandler is
    * @param cashflowLender_ ERC4626CashFlowLender for the creation of policies
    * @param swapConfig_  see {SwapLibrary.SwapConfig}
    * @param swapPrice_  Reference price for the stablecoin, expressed as Wad (18 decimals)
+   * @param admin Account that will hold the GUARDIAN_ROLE and DEFAULT_ADMIN_ROLE initially
    */
   function initialize(
     string memory name,
     string memory symbol,
     ERC4626CashFlowLender cashflowLender_,
     SwapLibrary.SwapConfig memory swapConfig_,
-    uint256 swapPrice_
+    uint256 swapPrice_,
+    address admin
   ) public initializer {
-    // TODO: admin?
-    __StableSwapPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_, swapPrice_);
+    __StableSwapPayoutHandler_init(name, symbol, cashflowLender_, swapConfig_, swapPrice_, admin);
   }
 
   // solhint-disable-next-line func-name-mixedcase
@@ -83,24 +84,26 @@ contract StableSwapPayoutHandler is
     string memory symbol_,
     ERC4626CashFlowLender cashflowLender_,
     SwapLibrary.SwapConfig memory swapConfig_,
-    uint256 swapPrice_ // TODO: document that this price must always be in WAD
+    uint256 swapPrice_,
+    address admin
   ) internal onlyInitializing {
     __UUPSUpgradeable_init();
     __AccessControl_init();
     __ERC721_init(name_, symbol_);
     __Pausable_init();
-    __StableSwapPayoutHandler_init_unchained(cashflowLender_, swapConfig_, swapPrice_);
+    __StableSwapPayoutHandler_init_unchained(cashflowLender_, swapConfig_, swapPrice_, admin);
   }
 
   // solhint-disable-next-line func-name-mixedcase
   function __StableSwapPayoutHandler_init_unchained(
     ERC4626CashFlowLender cashflowLender_,
     SwapLibrary.SwapConfig memory swapConfig_,
-    uint256 swapPrice_
+    uint256 swapPrice_,
+    address admin
   ) internal onlyInitializing {
     _cashflowLender = cashflowLender_;
-    // TODO: add admin parameter or be consistent with CFL?
-    _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    _setupRole(DEFAULT_ADMIN_ROLE, admin);
+    _setupRole(GUARDIAN_ROLE, admin);
 
     _swapConfig = swapConfig_;
     _swapConfig.validate();
