@@ -17,6 +17,12 @@ import {SwapLibrary} from "@ensuro/swaplibrary/contracts/SwapLibrary.sol";
 
 import {ERC4626CashFlowLender} from "./ERC4626CashFlowLender.sol";
 
+/**
+ * @title StableSwapPayoutHandler
+ * @author Ensuro Dev Team (dev@ensuro.co)
+ * @custom:security-contact security@ensuro.co
+ * @notice NFT that wraps an Ensuro Policy NFT and handles the swap of the payout to a different stablecoin.
+ */
 contract StableSwapPayoutHandler is
   Initializable,
   AccessControlUpgradeable,
@@ -42,6 +48,9 @@ contract StableSwapPayoutHandler is
   event SwapConfigChanged(SwapLibrary.SwapConfig newConfig);
   event SwapPriceChanged(uint256 newPrice);
 
+  /**
+   * @param outSable_ The address of the stablecoin to be used for payouts
+   */
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor(IERC20Metadata outSable_) {
     require(address(outSable_) != address(0), "StableSwapPayoutHandler: outStable_ cannot be the zero address");
@@ -50,6 +59,13 @@ contract StableSwapPayoutHandler is
     _disableInitializers();
   }
 
+  /**
+   * @param name see {ERC721Upgradeable}
+   * @param symbol see {ERC721Upgradeable}
+   * @param cashflowLender_ ERC4626CashFlowLender for the creation of policies
+   * @param swapConfig_  see {SwapLibrary.SwapConfig}
+   * @param swapPrice_  Reference price for the stablecoin, expressed as Wad (18 decimals)
+   */
   function initialize(
     string memory name,
     string memory symbol,
@@ -103,6 +119,9 @@ contract StableSwapPayoutHandler is
     return _cashflowLender.riskModule().policyPool();
   }
 
+  /**
+   * @param interfaceId see {IERC165}
+   */
   function supportsInterface(
     bytes4 interfaceId
   ) public view virtual override(AccessControlUpgradeable, ERC721Upgradeable) returns (bool) {
@@ -115,6 +134,9 @@ contract StableSwapPayoutHandler is
   // solhint-disable-next-line no-empty-blocks
   function _authorizeUpgrade(address newImplementation) internal override onlyRole(GUARDIAN_ROLE) {}
 
+  /**
+   * @notice Creates and wraps a new policy. See {ERC4626CashFlowLender.newPolicyOnBehalfOf} for the parameter details.
+   */
   function newPolicyOnBehalfOf(
     address riskModule,
     uint256 payout,
@@ -146,6 +168,9 @@ contract StableSwapPayoutHandler is
     );
   }
 
+  /**
+   * @notice Creates and wraps a batch of new policies. See {ERC4626CashFlowLender.newPoliciesInBatchWithRm} for the parameter details.
+   */
   function newPoliciesInBatchOnBehalfOf(
     address[] memory riskModules,
     uint256[] memory payout,
@@ -179,6 +204,9 @@ contract StableSwapPayoutHandler is
     }
   }
 
+  /**
+   * @inheritdoc IERC721Receiver
+   */
   function onERC721Received(
     address,
     address,
@@ -189,6 +217,9 @@ contract StableSwapPayoutHandler is
     return IERC721Receiver.onERC721Received.selector;
   }
 
+  /**
+   * @inheritdoc IPolicyHolder
+   */
   function onPayoutReceived(
     address,
     address,
@@ -203,6 +234,9 @@ contract StableSwapPayoutHandler is
     return IPolicyHolder.onPayoutReceived.selector;
   }
 
+  /**
+   * @inheritdoc IPolicyHolder
+   */
   function onPolicyExpired(
     address,
     address,
@@ -212,12 +246,23 @@ contract StableSwapPayoutHandler is
     return IPolicyHolder.onPolicyExpired.selector;
   }
 
+  /**
+   * @dev Sets the reference price for stablecoin swaps.
+   *      Requires SWAP_PRICER_ROLE.
+   *      Emits a SwapPriceChanged event.
+   * @param newPrice The new price for the stablecoin, expressed as Wad (18 decimals)
+   */
   function setSwapPrice(uint256 newPrice) external onlyRole(SWAP_PRICER_ROLE) {
     require(newPrice > 0, "StableSwapPayoutHandler: newPrice must be greater than 0");
     _swapPrice = newPrice;
     emit SwapPriceChanged(newPrice);
   }
 
+  /**
+   * @dev Unwraps the policy and transfers ownership to the owner.
+   *      Only callable by the owner of the NFT.
+   *      Emits a Transfer event.
+   */
   function recoverPolicy(uint256 tokenId) external {
     require(ownerOf(tokenId) == _msgSender(), "StableSwapPayoutHandler: you must own the NFT to recover the policy");
     _burn(tokenId);
