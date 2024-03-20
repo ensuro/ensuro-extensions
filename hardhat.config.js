@@ -6,6 +6,20 @@ require("@openzeppelin/hardhat-upgrades");
 require("hardhat-dependency-compiler");
 require("hardhat-contract-sizer");
 require("solidity-coverage");
+require("@nomicfoundation/hardhat-foundry");
+
+// const exec = require("util").promisify(require("child_process").exec);
+const { execSync } = require("child_process");
+const { task } = require("hardhat/config");
+const { TASK_TEST } = require("hardhat/builtin-tasks/task-names");
+
+task(TASK_TEST, async function (args, hre, runSuper) {
+  // Run forge tests
+  await execSync("forge test", { stdio: "inherit" });
+
+  // Run tests as usual
+  await runSuper();
+});
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
