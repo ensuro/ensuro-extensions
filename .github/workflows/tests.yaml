@@ -14,6 +14,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+      - uses: foundry-rs/foundry-toolchain@v1
       - run: npm ci
       - run: npx hardhat compile
       - run: npx hardhat size-contracts

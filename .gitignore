@@ -10,5 +10,9 @@ cache
 artifacts
 build
 
+# foundry files
+cache_forge
+out
+
 .openzeppelin
 .DS_Store
