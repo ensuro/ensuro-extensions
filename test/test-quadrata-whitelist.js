@@ -4,8 +4,8 @@ const hre = require("hardhat");
 const { WhitelistStatus } = require("@ensuro/core/js/enums");
 
 const { getRole, accessControlMessage } = require("@ensuro/core/js/utils");
+const { fork } = require("@ensuro/core/js/test-utils");
 
-const { fork } = require("./utils");
 const { keccak256 } = require("./test-utils");
 
 const { ethers } = hre;

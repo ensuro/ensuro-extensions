@@ -5,6 +5,7 @@ const {
   accessControlMessage,
   makeSignedQuote,
   makeBucketQuoteMessage,
+  getTransactionEvent,
 } = require("@ensuro/core/js/utils");
 const {
   initCurrency,
@@ -16,7 +17,6 @@ const {
 
 const { Protocols, buildUniswapConfig } = require("@ensuro/swaplibrary/js/utils");
 const { defaultBucketPolicyParams, keccak256, getAddress } = require("./test-utils");
-const { getTransactionEvent } = require("./utils");
 const hre = require("hardhat");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
@@ -70,7 +70,6 @@ describe("StableSwapPayoutHandler", function () {
     const SignedBucketRiskModule = await ethers.getContractFactory("SignedBucketRiskModule");
     const rm = await addRiskModule(pool, premiumsAccount, SignedBucketRiskModule, {
       ensuroFee: 0.03,
-      extraConstructorArgs: [false],
     });
 
     // Setup the cfl
