@@ -103,7 +103,6 @@ contract StableSwapPayoutHandler is
   ) internal onlyInitializing {
     _cashflowLender = cashflowLender_;
     _setupRole(DEFAULT_ADMIN_ROLE, admin);
-    _setupRole(GUARDIAN_ROLE, admin);
 
     _swapConfig = swapConfig_;
     _swapConfig.validate();

@@ -129,6 +129,7 @@ describe("StableSwapPayoutHandler", function () {
 
     // Setup payout handler permissions
     await cfl.grantRole(await cfl.OWN_POLICY_CREATOR_ROLE(), payoutHandler);
+    await payoutHandler.connect(guardian).grantRole(await payoutHandler.GUARDIAN_ROLE(), guardian);
     await payoutHandler.connect(guardian).grantRole(await payoutHandler.POLICY_CREATOR_ROLE(), creator);
     await payoutHandler.connect(guardian).grantRole(await payoutHandler.SWAP_PRICER_ROLE(), usdtPricer);
 
