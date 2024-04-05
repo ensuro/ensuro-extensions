@@ -39,8 +39,11 @@ contract StableSwapPayoutHandler is
   bytes32 public constant SWAP_PRICER_ROLE = keccak256("SWAP_PRICER_ROLE");
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IERC20Metadata internal immutable _outStable;
 
+  IPolicyPool internal _pool;
   ERC4626CashFlowLender internal _cashflowLender;
   SwapLibrary.SwapConfig internal _swapConfig;
   uint256 internal _swapPrice;
@@ -102,6 +105,7 @@ contract StableSwapPayoutHandler is
     address admin
   ) internal onlyInitializing {
     _cashflowLender = cashflowLender_;
+    _pool = _cashflowLender.riskModule().policyPool();
     _setupRole(DEFAULT_ADMIN_ROLE, admin);
 
     _swapConfig = swapConfig_;
@@ -113,12 +117,8 @@ contract StableSwapPayoutHandler is
   }
 
   modifier onlyPolicyPool() {
-    require(_msgSender() == address(_pool()), "StableSwapPayoutHandler: The caller must be the PolicyPool");
+    require(_msgSender() == address(_pool), "StableSwapPayoutHandler: The caller must be the PolicyPool");
     _;
-  }
-
-  function _pool() internal view returns (IPolicyPool) {
-    return _cashflowLender.riskModule().policyPool();
   }
 
   /**
@@ -268,11 +268,11 @@ contract StableSwapPayoutHandler is
   function recoverPolicy(uint256 tokenId) external {
     require(ownerOf(tokenId) == _msgSender(), "StableSwapPayoutHandler: you must own the NFT to recover the policy");
     _burn(tokenId);
-    IERC721(address(_pool())).safeTransferFrom(address(this), _msgSender(), tokenId);
+    IERC721(address(_pool)).safeTransferFrom(address(this), _msgSender(), tokenId);
   }
 
   function currency() public view returns (IERC20Metadata) {
-    return _pool().currency();
+    return _pool.currency();
   }
 
   function outStable() public view returns (IERC20Metadata) {
@@ -289,6 +289,10 @@ contract StableSwapPayoutHandler is
 
   function swapConfig() public view returns (SwapLibrary.SwapConfig memory) {
     return _swapConfig;
+  }
+
+  function pool() public view returns (IPolicyPool) {
+    return _pool;
   }
 
   /**
