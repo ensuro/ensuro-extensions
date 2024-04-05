@@ -81,6 +81,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
       kind: "uups",
     });
 
+    await accessManager.grantComponentRole(rm, await rm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), erc4626cfl);
     await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp);
@@ -101,7 +102,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const SignedBucketRiskModule = await hre.ethers.getContractFactory("SignedBucketRiskModule");
     const bucketRm = await addRiskModule(pool, premiumsAccount, SignedBucketRiskModule, {
       collRatio: "1.0",
-      extraConstructorArgs: [true],
     });
 
     if (bucketId != 0 && bucketId != MaxUint256) {
@@ -110,8 +110,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     }
 
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), signer);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
-    await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), erc4626cfl);
 
     return { bucketRm, erc4626cfl, pool, accessManager, premiumsAccount, ...others };
   }
