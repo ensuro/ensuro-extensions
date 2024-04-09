@@ -52,7 +52,7 @@ jobs:
       - run: |
           RELEASE_TAG="${{ github.event.inputs.tag }}"
           if [ -z "$RELEASE_TAG" ]; then
-            if grep -q -- '-beta' <<< "$SEMVER"; then
+            if grep -q -- '-beta' <<< "${{ steps.semver.outputs.semver }}"; then
               RELEASE_TAG=beta
             else
               # No manual input, we must be running on a tag
