@@ -55,7 +55,7 @@ async function defaultBucketPolicyParams({
     premium: premium || MaxUint256,
     lossProb: lossProb || _W(0.1),
     expiration: expiration || now + 3600 * 24 * 30,
-    policyData: policyData || "0xb494869573b0a0ce9caac5394e1d0d255d146ec7e2d30d643a4e1d78980f3235",
+    policyData: policyData || ethers.hexlify(ethers.randomBytes(32)),
     bucketId: bucketId || 0,
     validUntil: validUntil || now + 3600 * 24 * 30,
   };

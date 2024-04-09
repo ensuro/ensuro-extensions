@@ -77,13 +77,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), signer);
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
-    const erc4626cfl = await hre.upgrades.deployProxy(
-      ERC4626CashFlowLender,
-      ["CFL", "ensCFL", rmAddr, currencyAddr],
-      {
-        kind: "uups",
-      }
-    );
+    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, ["CFL", "ensCFL", rmAddr, currencyAddr], {
+      kind: "uups",
+    });
 
     await accessManager.grantComponentRole(rm, await rm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), erc4626cfl);
@@ -93,6 +89,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.grantRole(await erc4626cfl.CHANGE_RM_ROLE(), changeRm);
     await erc4626cfl.grantRole(await erc4626cfl.RESOLVER_ROLE(), resolver);
     await erc4626cfl.grantRole(await erc4626cfl.POLICY_CREATOR_ROLE(), creator);
+    await erc4626cfl.grantRole(await erc4626cfl.REPLACER_ROLE(), creator);
     await erc4626cfl.grantRole(await erc4626cfl.GUARDIAN_ROLE(), guardian);
 
     return { etk, premiumsAccount, rm, rmAddr, pool, accessManager, currency, currencyAddr, erc4626cfl };
@@ -105,7 +102,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const SignedBucketRiskModule = await hre.ethers.getContractFactory("SignedBucketRiskModule");
     const bucketRm = await addRiskModule(pool, premiumsAccount, SignedBucketRiskModule, {
       collRatio: "1.0",
-      extraConstructorArgs: [true],
     });
 
     if (bucketId != 0 && bucketId != MaxUint256) {
@@ -116,6 +112,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), signer);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), erc4626cfl);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.REPLACER_ROLE(), erc4626cfl);
 
     return { bucketRm, erc4626cfl, pool, accessManager, premiumsAccount, ...others };
   }
@@ -198,17 +196,15 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200) - _A(800)); // 200 prev debt - 800 payout
   });
 
-  ["newPolicy"].map((method) =>
-    it(`Rejects if called by unauthorized user - ${method}`, async () => {
-      const { rm, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
-      const policyParams = await defaultPolicyParams({ rm: rm, premium: _A(200) });
-      const signature = await makeSignedQuote(signer, policyParams);
+  it("Rejects if called by unauthorized user - newPolicy", async () => {
+    const { rm, erc4626cfl } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultPolicyParams({ rm: rm, premium: _A(200) });
+    const signature = await makeSignedQuote(signer, policyParams);
 
-      await expect(newPolicy(erc4626cfl, anon, policyParams, cust, signature, method)).to.be.revertedWith(
-        accessControlMessage(anon, null, "POLICY_CREATOR_ROLE")
-      );
-    })
-  );
+    await expect(newPolicy(erc4626cfl, anon, policyParams, cust, signature)).to.be.revertedWith(
+      accessControlMessage(anon, null, "POLICY_CREATOR_ROLE")
+    );
+  });
 
   it("Address without LP_ROLE can't withdraw/redeem", async () => {
     const { rm, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
@@ -1076,6 +1072,53 @@ describe("ERC4626CashFlowLender contract tests", function () {
       expect(newPolicyEvts.length).to.be.equal(3);
       expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(erc4626cfl);
       expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl);
+    });
+
+    it(`Only REPLACER_ROLE can replace policies - bucketId === ${bucketId} - SignedBucketRiskModule`, async () => {
+      const { pool, currency, bucketRm, erc4626cfl } = await deployBucketRmFixture(bucketId);
+      const policyParams = await defaultBucketPolicyParams({
+        rm: bucketRm,
+        premium: _A(200),
+        bucketId,
+        payout: _A(800),
+      });
+      const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+
+      await currency.connect(cust).transfer(erc4626cfl, _A(1000));
+      const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
+      const receipt = await tx.wait();
+
+      const policy = getTransactionEvent(pool.interface, receipt, "NewPolicy").args.policy;
+
+      const replacementPolicyParams = await defaultBucketPolicyParams({
+        rm: bucketRm,
+        payout: _A("933"),
+        premium: _A("300"),
+        bucketId,
+        lossProb: policyParams.lossProb,
+        expiration: policy.expiration,
+        validUntil: policyParams.validUntil,
+      });
+      const replacementPolicySignature = await makeSignedQuote(signer, replacementPolicyParams, makeBucketQuoteMessage);
+
+      const replaceCallParams = [
+        [...policy],
+        replacementPolicyParams.payout,
+        replacementPolicyParams.premium,
+        replacementPolicyParams.lossProb,
+        replacementPolicyParams.expiration,
+        replacementPolicyParams.policyData,
+        replacementPolicyParams.bucketId,
+        replacementPolicySignature.r,
+        replacementPolicySignature.yParityAndS,
+        replacementPolicyParams.validUntil,
+      ];
+
+      await expect(erc4626cfl.connect(anon).replacePolicy(...replaceCallParams)).to.be.revertedWith(
+        accessControlMessage(anon, null, "REPLACER_ROLE")
+      );
+
+      await expect(erc4626cfl.connect(creator).replacePolicy(...replaceCallParams)).to.be.emit(pool, "PolicyReplaced");
     });
   });
 
