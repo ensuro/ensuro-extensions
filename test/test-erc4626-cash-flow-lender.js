@@ -1085,8 +1085,8 @@ describe("ERC4626CashFlowLender contract tests", function () {
       const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
 
       await currency.connect(cust).transfer(erc4626cfl, _A(1000));
-      const tx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
-      const receipt = await tx.wait();
+      const ogPolicyTx = await newBucketPolicy(erc4626cfl, bucketRm, creator, policyParams, signature);
+      const receipt = await ogPolicyTx.wait();
 
       const policy = getTransactionEvent(pool.interface, receipt, "NewPolicy").args.policy;
 
@@ -1118,7 +1118,17 @@ describe("ERC4626CashFlowLender contract tests", function () {
         accessControlMessage(anon, null, "REPLACER_ROLE")
       );
 
-      await expect(erc4626cfl.connect(creator).replacePolicy(...replaceCallParams)).to.be.emit(pool, "PolicyReplaced");
+      const tx = await erc4626cfl.connect(creator).replacePolicy(...replaceCallParams);
+      await expect(tx).to.emit(pool, "PolicyReplaced");
+
+      // Debt was increased
+      await expect(tx).to.emit(erc4626cfl, "DebtChanged").withArgs(replacementPolicyParams.premium);
+      await expect(tx).changeTokenBalance(
+        currency,
+        erc4626cfl,
+        -_A("100") // replacement premium (300) - og premium (200)
+      );
+      expect(await erc4626cfl.currentDebt()).to.equal(replacementPolicyParams.premium);
     });
   });
 

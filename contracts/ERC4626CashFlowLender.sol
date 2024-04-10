@@ -2,6 +2,7 @@
 pragma solidity 0.8.16;
 
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
+import {IPolicyHolderV2} from "@ensuro/core/contracts/interfaces/IPolicyHolderV2.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {SignedBucketRiskModule} from "@ensuro/core/contracts/SignedBucketRiskModule.sol";
@@ -25,7 +26,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable, IPolicyHolder {
+contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable, IPolicyHolderV2 {
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
@@ -91,7 +92,10 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
    * @dev See {IERC165-supportsInterface}.
    */
   function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-    return interfaceId == type(IPolicyHolder).interfaceId || super.supportsInterface(interfaceId);
+    return
+      interfaceId == type(IPolicyHolder).interfaceId ||
+      interfaceId == type(IPolicyHolderV2).interfaceId ||
+      super.supportsInterface(interfaceId);
   }
 
   // solhint-disable-next-line no-empty-blocks
@@ -469,7 +473,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
    * @param quoteSignatureR The signature of the quote. R component (EIP-2098 signature)
    * @param quoteSignatureVS The signature of the quote. VS component (EIP-2098 signature)
    * @param quoteValidUntil The expiration of the quote
-   * @return Returns the id of the created policy
+   * @return policyId Returns the id of the created policy
    */
   function replacePolicy(
     Policy.PolicyData calldata oldPolicy,
@@ -482,20 +486,25 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     bytes32 quoteSignatureR,
     bytes32 quoteSignatureVS,
     uint40 quoteValidUntil
-  ) external onlyRole(REPLACER_ROLE) returns (uint256) {
-    return
-      SignedBucketRiskModule(address(oldPolicy.riskModule)).replacePolicy(
-        oldPolicy,
-        payout,
-        premium,
-        lossProb,
-        expiration,
-        policyData,
-        bucketId,
-        quoteSignatureR,
-        quoteSignatureVS,
-        quoteValidUntil
-      );
+  ) external onlyRole(REPLACER_ROLE) returns (uint256 policyId) {
+    uint256 balanceBefore = _balance();
+    policyId = SignedBucketRiskModule(address(oldPolicy.riskModule)).replacePolicy(
+      oldPolicy,
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      policyData,
+      bucketId,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    uint256 debtChange = balanceBefore - _balance();
+    if (debtChange > 0) {
+      _increaseDebt(debtChange);
+    }
   }
 
   /**
@@ -526,6 +535,10 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _decreaseDebt(amount);
     return IPolicyHolder.onPayoutReceived.selector;
+  }
+
+  function onPolicyReplaced(address, address, uint256, uint256) external override returns (bytes4) {
+    return IPolicyHolderV2.onPolicyReplaced.selector;
   }
 
   /**
