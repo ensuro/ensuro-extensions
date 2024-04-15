@@ -77,13 +77,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), signer);
     const ERC4626CashFlowLender = await ethers.getContractFactory("ERC4626CashFlowLender");
-    const erc4626cfl = await hre.upgrades.deployProxy(
-      ERC4626CashFlowLender,
-      ["CFL", "ensCFL", rmAddr, currencyAddr],
-      {
-        kind: "uups",
-      }
-    );
+    const erc4626cfl = await hre.upgrades.deployProxy(ERC4626CashFlowLender, ["CFL", "ensCFL", rmAddr, currencyAddr], {
+      kind: "uups",
+    });
 
     await accessManager.grantComponentRole(rm, await rm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), erc4626cfl);
@@ -105,7 +101,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const SignedBucketRiskModule = await hre.ethers.getContractFactory("SignedBucketRiskModule");
     const bucketRm = await addRiskModule(pool, premiumsAccount, SignedBucketRiskModule, {
       collRatio: "1.0",
-      extraConstructorArgs: [true],
     });
 
     if (bucketId != 0 && bucketId != MaxUint256) {
@@ -114,6 +109,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     }
 
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), signer);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), erc4626cfl);
 
