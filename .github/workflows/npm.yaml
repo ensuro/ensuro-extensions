@@ -43,7 +43,7 @@ jobs:
             # No manual input, we must be running on a tag
             SEMVER="${GITHUB_REF/refs\/tags\/v/}"
           fi
-          echo "::set-output name=semver::${SEMVER}"
+          echo "semver=${SEMVER}" >> $GITHUB_OUTPUT
 
       - run: scripts/make-npm-package.sh "${{ steps.semver.outputs.semver }}" ./build/npm-package
 
@@ -52,7 +52,7 @@ jobs:
       - run: |
           RELEASE_TAG="${{ github.event.inputs.tag }}"
           if [ -z "$RELEASE_TAG" ]; then
-            if [[ "$SEMVER" == *"-beta"* ]]; then
+            if grep -q -- '-beta' <<< "${{ steps.semver.outputs.semver }}"; then
               RELEASE_TAG=beta
             else
               # No manual input, we must be running on a tag
