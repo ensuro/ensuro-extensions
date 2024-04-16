@@ -110,6 +110,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     }
 
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), signer);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
