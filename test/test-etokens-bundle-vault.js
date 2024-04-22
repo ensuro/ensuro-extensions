@@ -13,6 +13,7 @@ const {
   addRiskModule,
   addEToken,
 } = require("@ensuro/core/js/test-utils");
+const { ETokenParameter } = require("@ensuro/core/js/enums");
 const hre = require("hardhat");
 const { ethers } = hre;
 const { MaxUint256 } = ethers;
@@ -20,14 +21,6 @@ const { expect } = require("chai");
 const { WEEK } = require("@ensuro/core/js/constants");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
 const { RiskModuleParameter, WhitelistStatus } = require("@ensuro/core/js/enums");
-
-const ETokenParameter = {
-  /** TODO: add this to enums.js */
-  liquidityRequirement: 0,
-  minUtilizationRate: 1,
-  maxUtilizationRate: 2,
-  internalLoanInterestRate: 3,
-};
 
 describe("ETokensBundleVault contract tests", function () {
   let _A;
@@ -696,11 +689,12 @@ describe("ETokensBundleVault contract tests", function () {
       }
     );
 
-    // LP3 deposits some funds to etks[0]
+    // LP3 deposits some funds to etks
     await pool.connect(lp3).deposit(etks[0], _A(100));
     await pool.connect(lp3).deposit(etks[1], _A(200));
     await pool.connect(lp3).deposit(etks[2], _A(300));
     await pool.connect(lp3).deposit(jrETKs[2], _A(1000));
+    await pool.connect(lp3).deposit(srETKs[1], _A(1000));
 
     await etks[0].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
 
@@ -708,8 +702,24 @@ describe("ETokensBundleVault contract tests", function () {
     expect(await vault.maxDeposit(anon)).to.be.equal(MaxUint256);
     expect(await vault.maxMint(anon)).to.be.equal(MaxUint256);
 
+    // Lock some funds in etks[0] (jrETKs[1]) so UR is above 10% and accepts some deposits
+    let tx = await newPolicy(rms[1].connect(cust), _A(100), _A(50));
+    const policy0Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
+
+    expect(await etks[0].utilizationRate()).to.be.equal(_W("0.5"));
+
+    // Anyone can deposit because the other etks still accept money
+    expect(await vault.maxDeposit(anon)).to.be.equal(MaxUint256);
+    expect(await vault.maxMint(anon)).to.be.equal(MaxUint256);
+
     await etks[1].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
     await etks[2].setParam(ETokenParameter.minUtilizationRate, _W("0.1"));
+
+    // etk[0] ts = 100, scr = 50. To UR = 10%, ts can increase by 400.
+    expect(await vault.maxDeposit(anon)).to.be.closeTo(_A(400), CENTS);
+    expect(await vault.maxMint(anon)).to.be.closeTo(_A(400), CENTS);
+
+    await rms[1].connect(resolver).resolvePolicy([...policy0Evt.args[1]], _A(0));
 
     expect(await vault.maxDeposit(anon)).to.be.equal(0);
     expect(await vault.maxMint(anon)).to.be.equal(0);
@@ -738,7 +748,7 @@ describe("ETokensBundleVault contract tests", function () {
     );
 
     // Lock some funds in etks[2], so UR is above 10% and accepts some deposits
-    let tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
+    tx = await newPolicy(rms[2].connect(cust), _A(150), _A(75));
     const policy1Evt = getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
 
     expect(await etks[2].utilizationRate()).to.be.equal(_W("0.5"));
