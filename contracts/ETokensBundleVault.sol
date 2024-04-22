@@ -12,6 +12,7 @@ import {EToken} from "@ensuro/core/contracts/EToken.sol";
 import {ILPWhitelist} from "@ensuro/core/contracts/interfaces/ILPWhitelist.sol";
 import {WadRayMath} from "@ensuro/core/contracts/dependencies/WadRayMath.sol";
 import {MathUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/math/MathUpgradeable.sol";
+import {SafeMathUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
 
 /**
  * @title ERC-4626 vault that invests in several eTokens with fixed allocations
@@ -172,8 +173,10 @@ contract ETokensBundleVault is AccessControlUpgradeable, UUPSUpgradeable, ERC462
   /** @dev See {IERC4626-maxDeposit}. */
   function maxDeposit(address receiver) public view virtual override returns (uint256 ret) {
     if (!_isWhitelisted(receiver, true)) return 0;
+    bool addOk;
     for (uint256 i; i < _underlying.length; i++) {
-      ret += _maxDepositInETK(_underlying[i].etk);
+      (addOk, ret) = SafeMathUpgradeable.tryAdd(ret, _maxDepositInETK(_underlying[i].etk));
+      if (!addOk) return type(uint256).max;
       if (ret == type(uint256).max) return ret;
     }
     return ret;
