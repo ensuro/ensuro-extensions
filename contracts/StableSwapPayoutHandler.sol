@@ -39,8 +39,6 @@ contract StableSwapPayoutHandler is
   bytes32 public constant SWAP_PRICER_ROLE = keccak256("SWAP_PRICER_ROLE");
 
   /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-
-  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   IERC20Metadata internal immutable _outStable;
 
   IPolicyPool internal _pool;
