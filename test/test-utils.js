@@ -4,6 +4,9 @@ const { ethers, MaxUint256 } = require("ethers");
 
 const _A = amountFunction(6);
 
+// eslint-disable-next-line func-style
+const keccak256 = (str) => ethers.keccak256(ethers.toUtf8Bytes(str));
+
 function getAddress(addressable) {
   return addressable.address || addressable.target || addressable;
 }
@@ -111,4 +114,6 @@ module.exports = {
   makeBatchParams,
   defaultBucketPolicyParams,
   newBucketPolicy,
+  keccak256,
+  getAddress,
 };

@@ -81,6 +81,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
       kind: "uups",
     });
 
+    await accessManager.grantComponentRole(rm, await rm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.RESOLVER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(rm, await rm.PRICER_ROLE(), erc4626cfl);
     await erc4626cfl.grantRole(await erc4626cfl.LP_ROLE(), lp);
@@ -110,11 +111,11 @@ describe("ERC4626CashFlowLender contract tests", function () {
     }
 
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), signer);
-    await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
-    await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
+
     await accessManager.grantComponentRole(bucketRm, await bucketRm.PRICER_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.POLICY_CREATOR_ROLE(), erc4626cfl);
     await accessManager.grantComponentRole(bucketRm, await bucketRm.REPLACER_ROLE(), erc4626cfl);
+    await accessManager.grantComponentRole(bucketRm, await bucketRm.RESOLVER_ROLE(), erc4626cfl);
 
     return { bucketRm, erc4626cfl, pool, accessManager, premiumsAccount, ...others };
   }
@@ -1244,6 +1245,49 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(newPolicyEvts.length).to.be.equal(3);
     expect(await pool.ownerOf(newPolicyEvts[1].args[1].id)).to.be.equal(erc4626cfl);
     expect(await pool.ownerOf(newPolicyEvts[2].args[1].id)).to.be.equal(erc4626cfl);
+  });
+
+  it("Only OWN_POLICY_CREATOR_ROLE can create policies on behalf of", async () => {
+    const { bucketRm, erc4626cfl, pool, currency } = await helpers.loadFixture(deployBucketRmFixture);
+    await currency.connect(cust).transfer(erc4626cfl, _A(1000));
+
+    const policyParams = await defaultBucketPolicyParams({
+      rm: bucketRm,
+      premium: _A(200),
+      bucketId: 0,
+    });
+    const signature = await makeSignedQuote(signer, policyParams, makeBucketQuoteMessage);
+    const policyArgs = [
+      bucketRm.target,
+      policyParams.payout,
+      policyParams.premium,
+      policyParams.lossProb,
+      policyParams.expiration,
+      cust.address,
+      policyParams.bucketId,
+      policyParams.policyData,
+      signature.r,
+      signature.yParityAndS,
+      policyParams.validUntil,
+    ];
+
+    // Anon can't call this method
+    await expect(erc4626cfl.connect(anon).newPolicyOnBehalfOf(...policyArgs)).to.be.revertedWith(
+      accessControlMessage(anon, null, "OWN_POLICY_CREATOR_ROLE")
+    );
+
+    // A user with OWN_POLICY_CREATOR_ROLE can
+    await erc4626cfl.grantRole(await erc4626cfl.OWN_POLICY_CREATOR_ROLE(), creator);
+
+    const tx = await erc4626cfl.connect(creator).newPolicyOnBehalfOf(...policyArgs);
+    const newPolicyEvt = await getTransactionEvent(pool.interface, await tx.wait(), "NewPolicy");
+
+    // The policy created is owned by the customer
+    expect(await pool.ownerOf(newPolicyEvt.args.policy.id)).to.be.equal(cust.address);
+    // The policy was paid by the CFL, not the customer or the creator
+    await expect(tx).to.changeTokenBalance(currency, creator, 0);
+    await expect(tx).to.changeTokenBalance(currency, cust, 0);
+    await expect(tx).to.changeTokenBalance(currency, erc4626cfl, -policyParams.premium);
   });
 
   it("Only borrower role can borrow", async () => {
