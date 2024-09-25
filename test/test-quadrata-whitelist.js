@@ -36,6 +36,8 @@ const attributes = {
   CRED_PROTOCOL_SCORE: keccak256("CRED_PROTOCOL_SCORE"),
 };
 
+const itfork = it;
+
 describe("Quadrata whitelist", () => {
   let admin, lp, nobody, operative, owner;
 
@@ -43,7 +45,7 @@ describe("Quadrata whitelist", () => {
     [owner, nobody, admin, operative, lp] = await ethers.getSigners();
   });
 
-  fork.it("Can be initialized with a default status and a quadrata reader", 33179753, async () => {
+  itfork.skip("Can be initialized with a default status and a quadrata reader", 33179753, async () => {
     const { whitelist, requiredAMLScore } = await deployWhitelist();
 
     let events = await whitelist.queryFilter(whitelist.filters.QuadrataWhitelistModeChanged());
@@ -70,7 +72,7 @@ describe("Quadrata whitelist", () => {
     expect(await whitelist.reader()).to.equal(mumbaiAddresses.quadrataReader);
   });
 
-  fork.it("Allows only QUADRATA_WHITELIST_ROLE to whitelist", 33222066, async () => {
+  itfork.skip("Allows only QUADRATA_WHITELIST_ROLE to whitelist", 33222066, async () => {
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
     const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
 
@@ -89,7 +91,7 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, whitelistMode);
   });
 
-  fork.it("Allows only admin to set the whitelist mode", 33222066, async () => {
+  itfork.skip("Allows only admin to set the whitelist mode", 33222066, async () => {
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
     const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
     const { whitelist, accessManager } = await deployWhitelist({
@@ -117,7 +119,7 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, newMode);
   });
 
-  fork.it("Does not allow overriding whitelist defaults through quadrataWhitelist", 33179753, async () => {
+  itfork.skip("Does not allow overriding whitelist defaults through quadrataWhitelist", 33179753, async () => {
     const { whitelist, accessManager } = await deployWhitelist({ whitelisters: [operative] });
     const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
 
@@ -128,7 +130,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Does not whitelist user with no passport or missing attributes", 33242153, async () => {
+  itfork.skip("Does not whitelist user with no passport or missing attributes", 33242153, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative] });
     const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
 
@@ -161,7 +163,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Whitelists user with fully compliant passport", 33222066, async () => {
+  itfork.skip("Whitelists user with fully compliant passport", 33222066, async () => {
     const { whitelist, whitelistMode } = await deployWhitelist({
       whitelisters: [operative],
       requiredAMLScore: 10,
@@ -228,7 +230,7 @@ describe("Quadrata whitelist", () => {
     "ALCHEMY_URL_POLYGON"
   );
 
-  fork.it("Emits events with passport attributes on whitelist", 33222066, async () => {
+  itfork.skip("Emits events with passport attributes on whitelist", 33222066, async () => {
     const adminEOA = await ethers.getImpersonatedSigner(mumbaiAddresses.admin);
     const { accessManager, whitelist } = await deployWhitelist({
       whitelisters: [operative],
@@ -250,7 +252,7 @@ describe("Quadrata whitelist", () => {
       .withArgs(userWithPassport, attributes.AML, ethers.zeroPadValue("0x09", 32));
   });
 
-  fork.it("Validates that user aml score is under threshold", 33235866, async () => {
+  itfork.skip("Validates that user aml score is under threshold", 33235866, async () => {
     const { whitelist } = await deployWhitelist({ whitelisters: [operative], requiredAMLScore: 3 });
     const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
 
@@ -271,7 +273,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Only allows admin to change required AML score", 33235866, async () => {
+  itfork.skip("Only allows admin to change required AML score", 33235866, async () => {
     const { whitelist, requiredAMLScore } = await deployWhitelist({ admins: [admin] });
 
     expect(await whitelist.requiredAMLScore()).to.equal(requiredAMLScore);
@@ -287,7 +289,7 @@ describe("Quadrata whitelist", () => {
     expect(await whitelist.requiredAMLScore()).to.equal(2);
   });
 
-  fork.it("Only allows admin to add/remove country from blacklist", 33235866, async () => {
+  itfork.skip("Only allows admin to add/remove country from blacklist", 33235866, async () => {
     const { whitelist } = await deployWhitelist({ admins: [admin] });
 
     expect(await whitelist.countryBlacklisted(keccak256("CL"))).to.be.false;
@@ -301,7 +303,7 @@ describe("Quadrata whitelist", () => {
       .withArgs(keccak256("CL"), true);
   });
 
-  fork.it("Does not whitelist user from blacklisted country", 33235866, async () => {
+  itfork.skip("Does not whitelist user from blacklisted country", 33235866, async () => {
     const { whitelist } = await deployWhitelist({ admins: [admin], whitelisters: [operative] });
     const { assertAttributeValue } = await deployPassportInspector(mumbaiAddresses.quadrataReader);
     const userWithPassport = "0xbB90F2A3129abF4f1BE7Fa0528A929e2377dD705";
@@ -324,7 +326,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Only allows admin to add required attributes", 33235866, async () => {
+  itfork.skip("Only allows admin to add required attributes", 33235866, async () => {
     const { whitelist, requiredAttributes } = await deployWhitelist({ admins: [admin] });
 
     expect(await whitelist.requiredAttributes()).to.eql(requiredAttributes);
@@ -345,7 +347,7 @@ describe("Quadrata whitelist", () => {
     );
   });
 
-  fork.it("Only allows admin to remove required attributes", 33235866, async () => {
+  itfork.skip("Only allows admin to remove required attributes", 33235866, async () => {
     const { whitelist, requiredAttributes } = await deployWhitelist({
       admins: [admin],
       requiredAttributes: [attributes.DID, attributes.AML, attributes.COUNTRY],

@@ -2,6 +2,7 @@
 pragma solidity 0.8.16;
 
 import {IPolicyHolder} from "@ensuro/core/contracts/interfaces/IPolicyHolder.sol";
+import {IPolicyHolderV2} from "@ensuro/core/contracts/interfaces/IPolicyHolderV2.sol";
 import {IPolicyPool} from "@ensuro/core/contracts/interfaces/IPolicyPool.sol";
 import {Policy} from "@ensuro/core/contracts/Policy.sol";
 import {SignedBucketRiskModule} from "@ensuro/core/contracts/SignedBucketRiskModule.sol";
@@ -25,7 +26,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @custom:security-contact security@ensuro.co
  * @author Ensuro
  */
-contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable, IPolicyHolder {
+contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC4626Upgradeable, IPolicyHolderV2 {
   using SafeERC20 for IERC20Metadata;
 
   bytes32 public constant LP_ROLE = keccak256("LP_ROLE");
@@ -36,6 +37,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   bytes32 public constant OWN_POLICY_CREATOR_ROLE = keccak256("OWN_POLICY_CREATOR_ROLE");
   bytes32 public constant POLICY_CREATOR_ROLE = keccak256("POLICY_CREATOR_ROLE");
   bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
+  bytes32 public constant REPLACER_ROLE = keccak256("REPLACER_ROLE");
 
   SignedQuoteRiskModule internal _riskModule;
   int256 internal _debt;
@@ -91,7 +93,10 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
    * @dev See {IERC165-supportsInterface}.
    */
   function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-    return interfaceId == type(IPolicyHolder).interfaceId || super.supportsInterface(interfaceId);
+    return
+      interfaceId == type(IPolicyHolder).interfaceId ||
+      interfaceId == type(IPolicyHolderV2).interfaceId ||
+      super.supportsInterface(interfaceId);
   }
 
   // solhint-disable-next-line no-empty-blocks
@@ -513,6 +518,57 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   }
 
   /**
+   * @dev Replace a policy with a new one, reusing the premium and the capital locked.
+   *
+   * Increases the debt if the new premium is higher.
+   *
+   * See {SignedBucketRiskModule.replacePolicy}. The caller must have the REPLACER_ROLE.
+   *
+   * @param oldPolicy The policy to be replaced
+   * @param payout The exposure (maximum payout) of the new policy
+   * @param premium The premium that will be paid by the caller
+   * @param lossProb The probability of having to pay the maximum payout (wad)
+   * @param expiration The expiration of the policy (timestamp)
+   * @param policyData A hash of the private details of the policy. The last 96 bits will be used as internalId
+   * @param bucketId Identifies the group to which the policy belongs (that defines the RM parameters applicable to it)
+   * @param quoteSignatureR The signature of the quote. R component (EIP-2098 signature)
+   * @param quoteSignatureVS The signature of the quote. VS component (EIP-2098 signature)
+   * @param quoteValidUntil The expiration of the quote
+   * @return policyId Returns the id of the created policy
+   */
+  function replacePolicy(
+    Policy.PolicyData calldata oldPolicy,
+    uint256 payout,
+    uint256 premium,
+    uint256 lossProb,
+    uint40 expiration,
+    bytes32 policyData,
+    uint256 bucketId,
+    bytes32 quoteSignatureR,
+    bytes32 quoteSignatureVS,
+    uint40 quoteValidUntil
+  ) external onlyRole(REPLACER_ROLE) returns (uint256 policyId) {
+    uint256 balanceBefore = _balance();
+    policyId = SignedBucketRiskModule(address(oldPolicy.riskModule)).replacePolicy(
+      oldPolicy,
+      payout,
+      premium,
+      lossProb,
+      expiration,
+      policyData,
+      bucketId,
+      quoteSignatureR,
+      quoteSignatureVS,
+      quoteValidUntil
+    );
+    // Increases the debt
+    uint256 debtChange = balanceBefore - _balance();
+    if (debtChange > 0) {
+      _increaseDebt(debtChange);
+    }
+  }
+
+  /**
    * @dev Resolves several policies paid by this contract and decreases the debt. See {SignedQuoteRiskModule.resolvePolicy}
    *
    * Requirements:
@@ -540,6 +596,10 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
     require(msg.sender == address(_pool()), "Only the PolicyPool should call this method");
     _decreaseDebt(amount);
     return IPolicyHolder.onPayoutReceived.selector;
+  }
+
+  function onPolicyReplaced(address, address, uint256, uint256) external override returns (bytes4) {
+    return IPolicyHolderV2.onPolicyReplaced.selector;
   }
 
   /**

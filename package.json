@@ -29,10 +29,10 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^0.6.1",
-    "@ensuro/core": "^2.8.1",
+    "@ensuro/core": "^2.8.2",
     "@ensuro/swaplibrary": "^0.1.1",
-    "@openzeppelin/contracts": "~4.9.2",
     "@openzeppelin/contracts-upgradeable": "~4.9.2",
+    "@openzeppelin/contracts": "~4.9.2",
     "@quadrata/contracts": "^0.4.1",
     "@uniswap/v3-periphery": "^1.4.4"
   },
