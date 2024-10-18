@@ -45,6 +45,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
   event DebtChanged(int256 currentDebt);
   event RiskModuleChanged(SignedQuoteRiskModule newRiskModule);
   event CashOutPayout(address indexed destination, uint256 amount);
+  event RepayDebt(address indexed payer, uint256 amount, int256 oldDebt, int256 currentDebt);
   event Borrow(address indexed destination, uint256 amount);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
@@ -235,10 +236,10 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
    * @param amount The amount to pay
    */
   function repayDebt(uint256 amount) external {
-    require(_debt > 0, "ERC4626CashFlowLender: you can't repay because there's no debt");
-    amount = Math.min(uint256(_debt), amount);
+    int256 oldDebt = _debt;
     _decreaseDebt(amount);
     _currency().safeTransferFrom(_msgSender(), address(this), amount);
+    emit RepayDebt(_msgSender(), amount, oldDebt, _debt);
   }
 
   /**
