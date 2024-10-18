@@ -282,7 +282,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .withArgs(lp2, erc4626cfl, _A(50));
 
     // Repay all debt
-    await expect(erc4626cfl.connect(lp2).repayDebt(MaxUint256))
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(150)))
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(0))
       .to.emit(currency, "Transfer")
@@ -291,9 +291,10 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(200));
 
-    await expect(erc4626cfl.connect(lp2).repayDebt(_A(1000))).to.be.revertedWith(
-      "ERC4626CashFlowLender: you can't repay because there's no debt"
-    );
+    // Repay exceeds & debt becomes negative 
+    await erc4626cfl.connect(lp2).repayDebt(_A(300))
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-300));
+    expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(500));
   });
 
   it("Address without LP_ROLE can't deposit/mint", async () => {
