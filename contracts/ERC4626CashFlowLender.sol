@@ -236,6 +236,7 @@ contract ERC4626CashFlowLender is AccessControlUpgradeable, UUPSUpgradeable, ERC
    * @param amount The amount to pay
    */
   function repayDebt(uint256 amount) external {
+    if (amount == type(uint256).max) amount = _debt > 0 ? uint256(_debt) : 0;
     int256 oldDebt = _debt;
     _decreaseDebt(amount);
     _currency().safeTransferFrom(_msgSender(), address(this), amount);

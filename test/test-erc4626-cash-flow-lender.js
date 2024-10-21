@@ -282,7 +282,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .withArgs(lp2, erc4626cfl, _A(50));
 
     // Repay all debt
-    await expect(erc4626cfl.connect(lp2).repayDebt(_A(150)))
+    await expect(erc4626cfl.connect(lp2).repayDebt(MaxUint256))
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(0))
       .to.emit(currency, "Transfer")
@@ -295,6 +295,22 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.connect(lp2).repayDebt(_A(300))
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-300));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(500));
+
+    // Create a new policy after the last repay exceeding
+    let newPolicyParams = await defaultPolicyParams({ rm: rm, payout: _A(900), premium: _A(300), policyData: "0xa13fbfc7550fb24fb12960f14a126dc800fc35ad6aefe11c7d8a87d4f874744c"});
+    const newSignature = await makeSignedQuote(signer, newPolicyParams);
+
+    let newTx = await newPolicy(erc4626cfl, creator, newPolicyParams, cust, newSignature);
+    let newReceipt = await newTx.wait();
+
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+    newPolicyEvt = getTransactionEvent(pool.interface, newReceipt, "NewPolicy");
+
+    await helpers.time.increaseTo(newPolicyEvt.args[1].expiration + 500n);
+    await expect(pool.expirePolicy([...newPolicyEvt.args[1]])).not.to.emit(erc4626cfl, "DebtChanged");
+    // Debt in 0 after new policy
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
+
   });
 
   it("Address without LP_ROLE can't deposit/mint", async () => {
