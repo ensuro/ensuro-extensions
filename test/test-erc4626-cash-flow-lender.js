@@ -279,14 +279,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(150))
       .to.emit(currency, "Transfer")
-      .withArgs(lp2, erc4626cfl, _A(50));
+      .withArgs(lp2, erc4626cfl, _A(50))
+      .to.emit(erc4626cfl, "RepayDebt")
+      .withArgs(lp2, _A(50), _A(200), _A(150));
 
     // Repay all debt
     await expect(erc4626cfl.connect(lp2).repayDebt(MaxUint256))
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(0))
       .to.emit(currency, "Transfer")
-      .withArgs(lp2, erc4626cfl, _A(150));
+      .withArgs(lp2, erc4626cfl, _A(150))
+      .to.emit(erc4626cfl, "RepayDebt")
+      .withArgs(lp2, _A(150), _A(150), _A(0));
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(200));
@@ -296,7 +300,9 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(-300))
       .to.emit(currency, "Transfer")
-      .withArgs(lp2, erc4626cfl, _A(300));
+      .withArgs(lp2, erc4626cfl, _A(300))
+      .to.emit(erc4626cfl, "RepayDebt")
+      .withArgs(lp2, _A(300), 0, _A(-300));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-300));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(500));
 
@@ -338,10 +344,20 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.connect(resolver).resolvePolicy([...newPolicyEvt.args[1]], _A(100));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-90));
     await currency.connect(lp2).approve(erc4626cfl, _A(1000));
-    // Repay of 10 updating debt to -100
+
+    // Repay with MaxUint256 with negative debt & Emit RepayDebt event
+    await expect(erc4626cfl.connect(lp2).repayDebt(MaxUint256))
+      .to.emit(erc4626cfl, "DebtChanged")
+      .withArgs(_A(-90))
+      .to.emit(erc4626cfl, "RepayDebt")
+      .withArgs(lp2, 0, _A(-90), _A(-90))
+
+    // Repay of 10 updating debt to -100 & Emit RepayDebt event
     await expect(erc4626cfl.connect(lp2).repayDebt(_A(10)))
       .to.emit(erc4626cfl, "DebtChanged")
-      .withArgs(_A(-100));
+      .withArgs(_A(-100))
+      .to.emit(erc4626cfl, "RepayDebt")
+      .withArgs(lp2, _A(10), _A(-90), _A(-100))
     
     // Client Cashout 100 - Pay sent to client (offchain)
     await expect(erc4626cfl.connect(cust).cashOutPayouts(_A(100), cust))
