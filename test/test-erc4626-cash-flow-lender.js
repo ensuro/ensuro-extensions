@@ -325,7 +325,6 @@ describe("ERC4626CashFlowLender contract tests", function () {
     const signature = await makeSignedQuote(signer, policyParams);
   
     await currency.connect(lp).approve(erc4626cfl, _A(5000));
-  
     await erc4626cfl.connect(lp).deposit(_A(1000), lp);
   
     let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
@@ -334,15 +333,15 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(10));
   
     let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
-    
+
     // Resolve Policy, debt now is negative: -90
     await erc4626cfl.connect(resolver).resolvePolicy([...newPolicyEvt.args[1]], _A(100));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-90));
-    
+    await currency.connect(lp2).approve(erc4626cfl, _A(1000));
     // Repay of 10 updating debt to -100
     await expect(erc4626cfl.connect(lp2).repayDebt(_A(10)))
       .to.emit(erc4626cfl, "DebtChanged")
-      .withArgs(_A(-100)); 
+      .withArgs(_A(-100)); // Deuda final queda en -100
     
     // Client Cashout 100 - Pay sent to client (offchain)
     await expect(erc4626cfl.connect(cust).cashOutPayouts(_A(100), cust))
