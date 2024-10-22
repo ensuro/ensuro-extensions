@@ -292,7 +292,11 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(200));
 
     // Repay exceeds & debt becomes negative 
-    await erc4626cfl.connect(lp2).repayDebt(_A(300))
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(300)))
+      .to.emit(erc4626cfl, "DebtChanged")
+      .withArgs(_A(-300))
+      .to.emit(currency, "Transfer")
+      .withArgs(lp2, erc4626cfl, _A(300));
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-300));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(500));
 
@@ -311,6 +315,41 @@ describe("ERC4626CashFlowLender contract tests", function () {
     // Debt in 0 after new policy
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
 
+  });
+
+  it("Handles negative debt after resolution and customer payment", async () => {
+    const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
+
+    let policyParams = await defaultPolicyParams({ rm: rm, payout: _A(100), premium: _A(10), lossProb: _W(0.05) });
+    
+    const signature = await makeSignedQuote(signer, policyParams);
+  
+    await currency.connect(lp).approve(erc4626cfl, _A(5000));
+  
+    await erc4626cfl.connect(lp).deposit(_A(1000), lp);
+  
+    let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+    let receipt = await tx.wait();
+    // Settlement Sent to the customer, client pays 10. (offchain)
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(10));
+  
+    let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    
+    // Resolve Policy, debt now is negative: -90
+    await erc4626cfl.connect(resolver).resolvePolicy([...newPolicyEvt.args[1]], _A(100));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(-90));
+    
+    // Repay of 10 updating debt to -100
+    await expect(erc4626cfl.connect(lp2).repayDebt(_A(10)))
+      .to.emit(erc4626cfl, "DebtChanged")
+      .withArgs(_A(-100)); 
+    
+    // Client Cashout 100 - Pay sent to client (offchain)
+    await expect(erc4626cfl.connect(cust).cashOutPayouts(_A(100), cust))
+      .to.emit(erc4626cfl, "CashOutPayout")
+      .withArgs(cust, _A(100));
+  
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
   });
 
   it("Address without LP_ROLE can't deposit/mint", async () => {
