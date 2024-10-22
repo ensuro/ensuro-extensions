@@ -341,7 +341,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     // Repay of 10 updating debt to -100
     await expect(erc4626cfl.connect(lp2).repayDebt(_A(10)))
       .to.emit(erc4626cfl, "DebtChanged")
-      .withArgs(_A(-100)); // Deuda final queda en -100
+      .withArgs(_A(-100));
     
     // Client Cashout 100 - Pay sent to client (offchain)
     await expect(erc4626cfl.connect(cust).cashOutPayouts(_A(100), cust))
