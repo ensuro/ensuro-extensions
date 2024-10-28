@@ -5,12 +5,9 @@ const { getStorageLayout } = require("@ensuro/core/js/utils");
 
 describe("Storage Gaps", () => {
   const contracts = [
-    "CashFlowLender",
     "ERC4626CashFlowLender",
     "ETokensBundleVault",
     "EuroCashFlowLender",
-    "MultiRMCashFlowLender",
-    "QuadrataWhitelist",
     "StableSwapPayoutHandler",
   ];
 
