@@ -93,7 +93,18 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await erc4626cfl.grantRole(await erc4626cfl.REPLACER_ROLE(), creator);
     await erc4626cfl.grantRole(await erc4626cfl.GUARDIAN_ROLE(), guardian);
 
-    return { etk, premiumsAccount, rm, rmAddr, pool, accessManager, currency, currencyAddr, erc4626cfl };
+    return {
+      etk,
+      premiumsAccount,
+      rm,
+      rmAddr,
+      pool,
+      accessManager,
+      currency,
+      currencyAddr,
+      erc4626cfl,
+      ERC4626CashFlowLender,
+    };
   }
 
   async function deployBucketRmFixture(bucketId = 0) {
@@ -295,7 +306,7 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(200));
 
-    // Repay exceeds & debt becomes negative 
+    // Repay exceeds & debt becomes negative
     await expect(erc4626cfl.connect(lp2).repayDebt(_A(300)))
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(-300))
@@ -307,7 +318,12 @@ describe("ERC4626CashFlowLender contract tests", function () {
     expect(lp2before - (await currency.balanceOf(lp2))).to.equal(_A(500));
 
     // Create a new policy after the last repay exceeding
-    let newPolicyParams = await defaultPolicyParams({ rm: rm, payout: _A(900), premium: _A(300), policyData: "0xa13fbfc7550fb24fb12960f14a126dc800fc35ad6aefe11c7d8a87d4f874744c"});
+    let newPolicyParams = await defaultPolicyParams({
+      rm: rm,
+      payout: _A(900),
+      premium: _A(300),
+      policyData: "0xa13fbfc7550fb24fb12960f14a126dc800fc35ad6aefe11c7d8a87d4f874744c",
+    });
     const newSignature = await makeSignedQuote(signer, newPolicyParams);
 
     let newTx = await newPolicy(erc4626cfl, creator, newPolicyParams, cust, newSignature);
@@ -320,24 +336,23 @@ describe("ERC4626CashFlowLender contract tests", function () {
     await expect(pool.expirePolicy([...newPolicyEvt.args[1]])).not.to.emit(erc4626cfl, "DebtChanged");
     // Debt in 0 after new policy
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
-
   });
 
   it("Handles negative debt after resolution and customer payment", async () => {
     const { rm, pool, erc4626cfl, currency } = await helpers.loadFixture(deployPoolFixture);
 
     let policyParams = await defaultPolicyParams({ rm: rm, payout: _A(100), premium: _A(10), lossProb: _W(0.05) });
-    
+
     const signature = await makeSignedQuote(signer, policyParams);
-  
+
     await currency.connect(lp).approve(erc4626cfl, _A(5000));
     await erc4626cfl.connect(lp).deposit(_A(1000), lp);
-  
+
     let tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
     let receipt = await tx.wait();
     // Settlement Sent to the customer, client pays 10. (offchain)
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(10));
-  
+
     let newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
 
     // Resolve Policy, debt now is negative: -90
@@ -350,20 +365,20 @@ describe("ERC4626CashFlowLender contract tests", function () {
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(-90))
       .to.emit(erc4626cfl, "RepayDebt")
-      .withArgs(lp2, 0, _A(-90), _A(-90))
+      .withArgs(lp2, 0, _A(-90), _A(-90));
 
     // Repay of 10 updating debt to -100 & Emit RepayDebt event
     await expect(erc4626cfl.connect(lp2).repayDebt(_A(10)))
       .to.emit(erc4626cfl, "DebtChanged")
       .withArgs(_A(-100))
       .to.emit(erc4626cfl, "RepayDebt")
-      .withArgs(lp2, _A(10), _A(-90), _A(-100))
-    
+      .withArgs(lp2, _A(10), _A(-90), _A(-100));
+
     // Client Cashout 100 - Pay sent to client (offchain)
     await expect(erc4626cfl.connect(cust).cashOutPayouts(_A(100), cust))
       .to.emit(erc4626cfl, "CashOutPayout")
       .withArgs(cust, _A(100));
-  
+
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(0));
   });
 
@@ -1397,6 +1412,48 @@ describe("ERC4626CashFlowLender contract tests", function () {
 
     expect(await erc4626cfl.currentDebt()).to.be.equal(_A(500));
     expect(await currency.balanceOf(borrower)).to.be.equal(_A(500));
+  });
+
+  it("Creates a policy paid by the ERC4626CashFlowLender and transfers it to another CFL after migration", async () => {
+    const { rm, pool, currency, erc4626cfl, ERC4626CashFlowLender } = await helpers.loadFixture(deployPoolFixture);
+    const policyParams = await defaultPolicyParams({ rm: rm, premium: _A(200) });
+    const signature = await makeSignedQuote(signer, policyParams);
+
+    await currency.connect(lp).approve(erc4626cfl, _A(5000));
+    await erc4626cfl.connect(lp).deposit(_A(1000), lp);
+    const tx = await newPolicy(erc4626cfl, creator, policyParams, cust, signature);
+    const receipt = await tx.wait();
+    expect(await currency.balanceOf(erc4626cfl)).to.be.equal(_A(800)); // 200 spent on the premium
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200));
+
+    const newPolicyEvt = getTransactionEvent(pool.interface, receipt, "NewPolicy");
+    const policyId = newPolicyEvt.args[1].id;
+    expect(await pool.ownerOf(policyId)).to.be.equal(erc4626cfl);
+
+    const MigrateERC4626CFL = await hre.ethers.getContractFactory("MigrateERC4626CFL");
+    const otherCFL = await hre.upgrades.deployProxy(
+      ERC4626CashFlowLender,
+      ["othCFL", "ensOtherCFL", await ethers.resolveAddress(rm), await ethers.resolveAddress(currency)],
+      {
+        kind: "uups",
+      }
+    );
+    const migrationImpl = await MigrateERC4626CFL.deploy(otherCFL);
+    await erc4626cfl.connect(guardian).upgradeTo(migrationImpl);
+    // Bind erc4626cfl to the new ABI
+    const migratedCFL = await ethers.getContractAt("MigrateERC4626CFL", await ethers.resolveAddress(erc4626cfl));
+
+    await expect(migratedCFL.connect(anon).migratePolicies([policyId])).to.be.revertedWith(
+      accessControlMessage(anon, null, "MIGRATE_NFTS_ROLE")
+    );
+    await erc4626cfl.grantRole(await migratedCFL.MIGRATE_NFTS_ROLE(), anon);
+    await expect(migratedCFL.connect(anon).migratePolicies([policyId]))
+      .to.emit(pool, "Transfer")
+      .withArgs(erc4626cfl, otherCFL, policyId);
+
+    await erc4626cfl.connect(resolver).resolvePolicy([...newPolicyEvt.args[1]], _A(800));
+    expect(await erc4626cfl.currentDebt()).to.be.equal(_A(200)); // 200 prev debt
+    expect(await otherCFL.currentDebt()).to.be.equal(-_A(800)); // 200 prev debt - 800 payout
   });
 });
 
